@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  build-android:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,29 +20,57 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
 
-      - name: Make Gradle Wrapper
+      - name: Generate Gradle Wrapper
         working-directory: android
         run: |
-          gradle wrapper || true
+          gradle wrapper --gradle-version 8.10.2 --distribution-type bin
 
-      - name: Build APK with Gradle
+      - name: Build Android APK
         working-directory: android
         run: |
-          chmod +x gradlew || true
-          ./gradlew assembleDebug || ./gradlew build || true
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --stacktrace
 
-      - name: Package Windows 11 Bundle
+      - name: Package Windows 11 Companion Scripts
         run: |
-          mkdir -p release-bundle
-          cp -r windows release-bundle/
+          mkdir -p release-bundle/windows
+          cp -r windows/* release-bundle/windows/
           cp README.md release-bundle/
-          zip -r PdaNet-Next-Windows11-Scripts.zip release-bundle
+          cd release-bundle && zip -r ../pdanet-next-windows11-scripts.zip . && cd ..
 
-      - name: Upload Windows 11 Scripts Artifact
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PdaNet-Next-Windows11-Scripts
-          path: PdaNet-Next-Windows11-Scripts.zip
+          name: pdanet-next-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+
+      - name: Upload Windows 11 Bundle Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pdanet-next-windows11-bundle
+          path: pdanet-next-windows11-scripts.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: v2.0.${{ github.run_number }}
+          name: PdaNet-Next v2.0.${{ github.run_number }}
+          make_latest: true
+          files: |
+            android/app/build/outputs/apk/debug/*.apk
+            pdanet-next-windows11-scripts.zip
+          body: |
+            ## PdaNet-Next v2.0 (Pure USB Carrier-Bypass Tethering)
+            
+            ### Android:
+            - Download and install the `.apk` on your Android device.
+            - Tap **START USB TETHER**.
+            
+            ### Windows 11:
+            - Download `pdanet-next-windows11-scripts.zip` and extract.
+            - Plug USB cable and run `windows\connect.ps1` as Administrator.
+            - Carrier hotspot counter untouched (native TTL 64). Zero kernel drivers.
