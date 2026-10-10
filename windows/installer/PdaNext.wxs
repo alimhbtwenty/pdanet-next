@@ -1,0 +1,104 @@
+<!--
+  PdaNext MSI (WiX Toolset 5). Built in CI:
+    wix build windows/installer/PdaNext.wxs -arch x64 -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext
+              -d Version=3.0.N -d SourceDir=<folder with PdaNext.exe and bin\> -o PdaNext-Setup.msi
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Package Name="PdaNext"
+           Manufacturer="PdaNext"
+           Version="$(Version)"
+           UpgradeCode="249131ef-377d-5168-95eb-7d45db1ec591"
+           Scope="perMachine"
+           Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of PdaNext is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon" SourceFile="$(sys.SOURCEFILEDIR)..\assets\app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/alimhbtwenty/pdanext" />
+    <Property Id="ARPCOMMENTS" Value="Your Android phone as the PC's router over USB" />
+
+    <WixVariable Id="WixUILicenseRtf" Value="$(sys.SOURCEFILEDIR)License.rtf" />
+    <WixVariable Id="WixUIBannerBmp" Value="$(sys.SOURCEFILEDIR)banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(sys.SOURCEFILEDIR)dialog.bmp" />
+    <ui:WixUI Id="WixUI_Minimal" />
+    <!-- Offer to start the app from the last page. -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Start PdaNext" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[#PdaNextExe]" />
+    <CustomAction Id="LaunchApp" BinaryRef="Wix4UtilCA_X64" DllEntry="WixShellExec" Impersonate="yes" />
+    <UI>
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchApp"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed" />
+    </UI>
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="PdaNext">
+        <Directory Id="BinFolder" Name="bin" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="DesktopFolder" />
+
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Component>
+        <File Id="PdaNextExe" Source="$(SourceDir)\PdaNext.exe" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="PdaNext"
+                    Description="Your Android phone as the PC's router over USB"
+                    WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" Advertise="yes" />
+          <Shortcut Id="DesktopShortcut" Directory="DesktopFolder" Name="PdaNext"
+                    WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" Advertise="yes" />
+        </File>
+      </Component>
+      <Component>
+        <File Source="$(SourceDir)\PdaNext.exe.config" />
+      </Component>
+      <Component>
+        <File Source="$(SourceDir)\README.md" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="BinFiles" Directory="BinFolder">
+      <Component><File Source="$(SourceDir)\bin\adb.exe" /></Component>
+      <Component><File Source="$(SourceDir)\bin\AdbWinApi.dll" /></Component>
+      <Component><File Source="$(SourceDir)\bin\AdbWinUsbApi.dll" /></Component>
+      <Component><File Source="$(SourceDir)\bin\wintun.dll" /></Component>
+      <Component><File Source="$(SourceDir)\bin\wintun-LICENSE.txt" /></Component>
+      <Component><File Source="$(SourceDir)\bin\PdaNext.apk" /></Component>
+    </ComponentGroup>
+
+    <Feature Id="Main" Title="PdaNext">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentGroupRef Id="BinFiles" />
+    </Feature>
+
+    <!--
+      On uninstall: stop the app and adb, and remove what lives outside the install folder
+      (the logon task and the DNS rule). Failures are ignored: each may simply not exist.
+    -->
+    <SetProperty Id="StopApp" Before="StopApp" Sequence="execute"
+                 Value="&quot;[System64Folder]taskkill.exe&quot; /F /IM PdaNext.exe /IM adb.exe" />
+    <CustomAction Id="StopApp" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <SetProperty Id="RemoveLogonTask" Before="RemoveLogonTask" Sequence="execute"
+                 Value="&quot;[System64Folder]schtasks.exe&quot; /Delete /F /TN PdaNext" />
+    <CustomAction Id="RemoveLogonTask" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <SetProperty Id="RemoveDnsRule" Before="RemoveDnsRule" Sequence="execute"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -Command &quot;Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'PdaNext' } | Remove-DnsClientNrptRule -Force&quot;" />
+    <CustomAction Id="RemoveDnsRule" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="StopApp" Before="RemoveFiles" Condition="REMOVE ~= &quot;ALL&quot;" />
+      <Custom Action="RemoveLogonTask" After="StopApp" Condition="REMOVE ~= &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="RemoveDnsRule" After="RemoveLogonTask" Condition="REMOVE ~= &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

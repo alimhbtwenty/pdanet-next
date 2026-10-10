@@ -157,11 +157,17 @@ namespace PdaNext
         {
             int x = 18, w = ClientSize.Width - 36, y = 16;
 
-            var title = MakeLabel("PdaNext", Theme.UI(20f, FontStyle.Bold), Theme.Text, x, y, w);
-            Controls.Add(title);
-            y += 40;
-            Controls.Add(MakeLabel("Your phone's internet on this PC, over USB", Theme.UI(10f), Theme.Secondary, x, y, w));
-            y += 34;
+            Controls.Add(new PictureBox
+            {
+                Image = new Icon(Program.AppIcon, 48, 48).ToBitmap(),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                Location = new Point(x, y + 4),
+                Size = new Size(52, 52),
+                BackColor = Color.Transparent,
+            });
+            Controls.Add(MakeLabel("PdaNext", Theme.UI(20f, FontStyle.Bold), Theme.Text, x + 64, y, w - 64));
+            Controls.Add(MakeLabel("Your phone as this PC's router, over USB", Theme.UI(10f), Theme.Secondary, x + 66, y + 38, w - 66));
+            y += 74;
 
             // Status card
             var status = AddCard(x, y, w, 120);
