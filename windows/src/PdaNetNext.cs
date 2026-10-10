@@ -209,6 +209,7 @@ namespace PdaNetNext
                 }
 
                 Program.RefreshSystemProxy();
+                RunCmd("ipconfig", "/flushdns");
 
                 isConnected = true;
                 statusItem.Text = "PdaNet-Next: Connected (Unlimited)";
@@ -245,6 +246,9 @@ namespace PdaNetNext
                 // Restore default TTL (128)
                 RunCmd("netsh", "int ipv4 set glob defaultcurhoplimit=128");
                 RunCmd("netsh", "int ipv6 set glob defaultcurhoplimit=128");
+
+                // Flush DNS cache
+                RunCmd("ipconfig", "/flushdns");
 
                 // Remove ADB reverse
                 RunCmd(adbPath, "reverse --remove-all");
