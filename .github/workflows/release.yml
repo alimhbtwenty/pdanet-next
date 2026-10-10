@@ -11,7 +11,7 @@ permissions:
 
 env:
   SING_BOX_VERSION: "1.14.1"
-  PLATFORM_TOOLS: "platform-tools_r35.0.2-windows.zip"
+  PLATFORM_TOOLS: "platform-tools-latest-windows.zip"
 
 jobs:
   relay-tests:
