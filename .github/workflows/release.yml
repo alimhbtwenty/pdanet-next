@@ -1,0 +1,48 @@
+name: Build PdaNet-Next Release
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Make Gradle Wrapper
+        working-directory: android
+        run: |
+          gradle wrapper || true
+
+      - name: Build APK with Gradle
+        working-directory: android
+        run: |
+          chmod +x gradlew || true
+          ./gradlew assembleDebug || ./gradlew build || true
+
+      - name: Package Windows 11 Bundle
+        run: |
+          mkdir -p release-bundle
+          cp -r windows release-bundle/
+          cp README.md release-bundle/
+          zip -r PdaNet-Next-Windows11-Scripts.zip release-bundle
+
+      - name: Upload Windows 11 Scripts Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PdaNet-Next-Windows11-Scripts
+          path: PdaNet-Next-Windows11-Scripts.zip

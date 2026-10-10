@@ -1,93 +1,122 @@
-# PdaNet-Next 🚀
+# PdaNet-Next
 
-> **Modern, carrier-bypass tethering engine and companion dashboard.**
-> Solves legacy PdaNet+ pain points: automated TTL matching, DPI traffic masking, transparent proxying, zero proprietary desktop drivers needed, and modern Material 3 UI.
+> USB tethering that carriers can't detect. Android → Windows 11. No root, no drivers, no license keys.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux-green.svg)](#cross-platform)
-[![No Root Required](https://img.shields.io/badge/Root-Not%20Required-brightgreen.svg)](#architecture)
+[![Android](https://img.shields.io/badge/Android-7.0%2B-3ddc84.svg)](#)
+[![Windows](https://img.shields.io/badge/Windows-11-0078d4.svg)](#)
 
 ---
 
-## 📌 Why PdaNet-Next? (The Problem with Legacy PdaNet+)
+## What this does
 
-PdaNet+ was great in 2011, but users today face major frustrations:
-1. **Broken Carrier Bypass:** Carriers now inspect packet **TTL (Time to Live)**, DNS leaks, and SNI/DPI signatures. PdaNet's "Hide Tether Usage" fails frequently.
-2. **Obsolete Proprietary Drivers:** PdaNet requires installing outdated, unsigned Windows `.exe` desktop drivers from the 2010s that trigger antivirus warnings.
-3. **Android 12/13/14+ WiFi Direct Breakage:** OS permission changes frequently disconnect WiFi Direct mode.
-4. **License Lockout:** Users report losing their paid license after phone resets or Play Store removals (FoxFi).
-5. **Dated UI:** A Gingerbread/Holo era interface with zero diagnostics.
+Your phone shares its mobile data with your Windows PC over a USB cable. The carrier sees normal phone traffic — not hotspot traffic — so your unlimited data plan stays unlimited.
 
-**PdaNet-Next fixes all of these.**
+**How it's different from PdaNet+:**
 
----
-
-## ✨ Features
-
-- 🛡️ **Automated TTL Normalization (`TTL = 64/65`):** Matches phone outgoing packet hops so carrier DPI engines cannot identify tethered laptop/console traffic.
-- 🔌 **Driverless USB & WiFi Tethering:** Uses standard local HTTP/SOCKS5 proxy and `adb reverse` / WebSockets. No custom kernel driver required on Windows, Mac, or Linux.
-- 🔒 **Encrypted DNS (DoH / DoT):** Routes all client DNS queries over Cloudflare/Google DNS-over-HTTPS to prevent carrier DNS snooping.
-- ⚡ **Zero-Root VPN Service Mode:** Uses Android `VpnService` locally to intercept and forward non-local traffic through the phone's mobile data interface without requiring root.
-- 📱 **Modern Material 3 Dashboard:** Real-time bandwidth monitor, active client list, TTL diagnostics, and quick toggle.
-- 🔓 **100% Free & Open Source:** No activation keys, no device locks.
+| Problem with PdaNet+ | PdaNet-Next |
+|---|---|
+| Carriers detect tethering via TTL inspection | Proxy-based: traffic originates from phone stack, native TTL |
+| Requires unsigned Windows driver (.exe from 2012) | Zero drivers — uses standard ADB port forwarding |
+| License lost after phone reset | Free & open source forever |
+| WiFi Direct breaks on Android 12+ | USB only — rock solid, fastest, lowest latency |
+| 2011-era UI with no diagnostics | Modern dark dashboard with live speed & status |
 
 ---
 
-## 🏗️ Architecture
+## How it works
 
 ```
-[ Client Laptop / PC / Mac ]
-            │
-            ▼ (Standard SOCKS5 / HTTP Proxy :8080 or ADB Tunnel)
-[ PdaNet-Next Engine (Android) ]
-            │
-            ├─► 1. Local VpnService / Proxy Server
-            ├─► 2. TTL Mangling & SNI Sanitization
-            ├─► 3. DoH (DNS over HTTPS) Resolver
-            │
-            ▼
-[ Mobile Carrier (T-Mobile / Verizon / AT&T / MCI / Irancell) ]
-(Sees only normal on-device cellular HTTPS traffic)
+┌─────────────────────┐     USB Cable      ┌──────────────────────┐
+│   Windows 11 PC     │◄──────────────────►│   Android Phone       │
+│                     │                     │                       │
+│  Browser / Apps     │                     │  PdaNet-Next Engine   │
+│       │             │                     │       │               │
+│       ▼             │  ADB reverse tunnel │       ▼               │
+│  localhost:8080  ───┼────────────────────►│  HTTP Proxy :8080     │
+│  (system proxy)     │                     │       │               │
+│                     │                     │       ▼               │
+│                     │                     │  Mobile Data (LTE/5G) │
+│                     │                     │  TTL = 64 (native)    │
+└─────────────────────┘                     └──────────────────────┘
+                                                     │
+                                                     ▼
+                                              Carrier Tower
+                                         (sees normal phone traffic)
 ```
+
+**Why carriers can't detect it:** In normal tethering, your laptop sends packets with TTL=128 through the phone, which decrements it to 127. The carrier sees 127 and flags it. With PdaNet-Next, your laptop's traffic goes through a local proxy on the phone — the phone's own network stack generates fresh packets with its native TTL of 64. The carrier sees nothing unusual.
 
 ---
 
-## 🚀 Quick Start
+## Quick Start (2 minutes)
 
-### 1. Android App
-Install the APK or run via web companion.
-Tap **"Start Proxy Engine"** to launch the local proxy on port `8080` (HTTP) and `1080` (SOCKS5).
+### Prerequisites
+- Android phone with USB Debugging enabled
+- Windows 11 PC with [ADB](https://developer.android.com/tools/releases/platform-tools) installed
+- USB cable
 
-### 2. Client Setup (Windows / macOS / Linux)
+### Step 1: Phone
+Install the APK on your Android phone. Open it and tap **Start Engine**.
 
-#### Method A: USB Tether (Fastest, Lowest Latency)
-Enable USB Debugging and run the cross-platform client:
-```bash
-# Connect phone via USB
-adb reverse tcp:8080 tcp:8080
-# Now point your browser/system proxy to 127.0.0.1:8080
-```
+### Step 2: PC
+Plug in USB cable. Open PowerShell **as Administrator** and run:
 
-#### Method B: WiFi Hotspot / Direct
-Connect your PC to the phone's WiFi hotspot, and set Proxy:
-- **Server:** `<Phone IP shown in app, e.g. 192.168.43.1>`
-- **Port:** `8080`
-
-#### Windows PowerShell TTL Auto-Fix (One-Click):
 ```powershell
-# Set outgoing Windows TTL to 65 (matches mobile hop)
-netsh int ipv4 set glob defaultcurhoplimit=65
-netsh int ipv6 set glob defaultcurhoplimit=65
+# One-time setup — run the connect script:
+.\windows\connect.ps1
+```
+
+Or manually:
+```powershell
+adb reverse tcp:8080 tcp:8080
+netsh winhttp set proxy 127.0.0.1:8080
+```
+
+### Step 3: Done
+Open your browser. You're online through your phone's unlimited data.
+
+### Disconnect
+```powershell
+.\windows\disconnect.ps1
 ```
 
 ---
 
-## 🛠️ Tech Stack
-- **Android Engine:** Kotlin, Coroutines, Android VpnService, Netty/Ktor SOCKS5 core
-- **Web & Desktop Companion:** HTML5, Modern Canvas, ServiceWorker, WebSockets
-- **Protocols:** SOCKS5 (RFC 1928), HTTP CONNECT tunneling, DNS-over-HTTPS (RFC 8484)
+## Project Structure
+
+```
+pdanet-next/
+├── android/                    # Android app (Kotlin)
+│   └── app/src/main/
+│       ├── java/.../           # ProxyEngine, VpnService, UI
+│       ├── res/                # Material 3 layouts
+│       └── AndroidManifest.xml
+├── windows/                    # Windows companion scripts
+│   ├── connect.ps1             # One-click connect
+│   ├── disconnect.ps1          # One-click disconnect
+│   └── setup-adb.ps1           # Install ADB if missing
+├── dashboard/                  # Web-based status dashboard
+│   └── index.html              # Real-time speed & diagnostics
+├── ARCHITECTURE.md             # Technical deep-dive
+└── README.md
+```
 
 ---
 
-## 📄 License
-MIT License. Free for everyone forever.
+## Building from Source
+
+### Android APK
+```bash
+cd android
+./gradlew assembleRelease
+# APK at: app/build/outputs/apk/release/app-release.apk
+```
+
+### Windows
+No build needed — PowerShell scripts run directly.
+
+---
+
+## License
+MIT — free forever, no activation, no tracking.
