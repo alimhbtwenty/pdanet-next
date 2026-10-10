@@ -1,5 +1,5 @@
 # PdaNet-Next Windows Client & System Tray Manager
-# Creates Virtual Network Adapter ("PdaNet-Next Broadband") & System Tray Icon
+# Creates Virtual Network Adapter and System Tray Icon
 
 param(
     [switch]$Install,
@@ -12,7 +12,6 @@ Add-Type -AssemblyName System.Drawing
 
 $appDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $binDir = Join-Path $appDir "bin"
-$adapterName = "PdaNet-Next Broadband"
 
 # Check Administrator Privileges
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -21,7 +20,6 @@ if (-not $isAdmin) {
     exit
 }
 
-# Tray App Definition
 class PdaNetTrayApp : System.Windows.Forms.ApplicationContext {
     [System.Windows.Forms.NotifyIcon]$trayIcon
     [System.Windows.Forms.ContextMenuStrip]$contextMenu
@@ -30,8 +28,18 @@ class PdaNetTrayApp : System.Windows.Forms.ApplicationContext {
     [System.Windows.Forms.ToolStripMenuItem]$disconnectItem
     [System.Windows.Forms.ToolStripMenuItem]$exitItem
     [bool]$isConnected = $false
+    [string]$adbPath = "adb"
 
     PdaNetTrayApp() {
+        # Locate bundled adb
+        $candidates = @(
+            "$env:ProgramFiles\PdaNet-Next\bin\adb.exe",
+            (Join-Path $PSScriptRoot "bin\adb.exe")
+        )
+        foreach ($c in $candidates) {
+            if (Test-Path $c) { $this.adbPath = $c; break }
+        }
+
         $this.contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
 
         $this.statusItem = New-Object System.Windows.Forms.ToolStripMenuItem("PdaNet-Next: Disconnected")
@@ -60,23 +68,19 @@ class PdaNetTrayApp : System.Windows.Forms.ApplicationContext {
         $this.trayIcon.Icon = [System.Drawing.SystemIcons]::Shield
         $this.trayIcon.Visible = $true
 
-        # Auto-connect if device is ready
         $this.Connect()
     }
 
     [void]Connect() {
-        $adb = "adb"
         try {
-            $devices = & $adb devices 2>&1 | Select-String "device$"
+            $devices = & $this.adbPath devices 2>&1 | Select-String "device$"
             if (-not $devices) {
-                $this.trayIcon.ShowBalloonTip(3000, "PdaNet-Next", "No phone detected over USB. Make sure USB Debugging is ON.", [System.Windows.Forms.ToolTipIcon]::Warning)
+                $this.trayIcon.ShowBalloonTip(3000, "PdaNet-Next", "No phone detected over USB. Enable USB Debugging.", [System.Windows.Forms.ToolTipIcon]::Warning)
                 return
             }
 
-            # Setup ADB tunnel
-            & $adb reverse tcp:8080 tcp:8080
+            & $this.adbPath reverse tcp:8080 tcp:8080
             
-            # Setup Virtual Routing & TTL
             netsh int ipv4 set glob defaultcurhoplimit=65 2>$null
             netsh int ipv6 set glob defaultcurhoplimit=65 2>$null
             netsh winhttp set proxy 127.0.0.1:8080 >$null 2>&1
@@ -106,7 +110,7 @@ class PdaNetTrayApp : System.Windows.Forms.ApplicationContext {
         netsh int ipv4 set glob defaultcurhoplimit=128 2>$null
         netsh int ipv6 set glob defaultcurhoplimit=128 2>$null
 
-        try { & adb reverse --remove-all 2>$null } catch {}
+        try { & $this.adbPath reverse --remove-all 2>$null } catch {}
 
         $this.isConnected = $false
         $this.statusItem.Text = "PdaNet-Next: Disconnected"
@@ -123,7 +127,6 @@ class PdaNetTrayApp : System.Windows.Forms.ApplicationContext {
     }
 }
 
-# Run System Tray App
 [System.Windows.Forms.Application]::EnableVisualStyles()
 $appContext = [PdaNetTrayApp]::new()
 [System.Windows.Forms.Application]::Run($appContext)
