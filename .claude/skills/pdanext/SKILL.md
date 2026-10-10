@@ -30,8 +30,9 @@ Technical field notes: the `networking` skill.
 - `alimhbtwenty/whatsapp-attendance-bot`: unrelated PWA. Branch `ccr-bd34aa07-k9vhv4` there holds 50
   third-party "antigravity" skills under `.claude/skills` (unmerged; owner said they are not
   repo-specific). The skills zip came from the owner; it was scanned and looked benign.
-- **Never tested on a real phone + Windows PC yet.** First real test: ask for the Windows log
-  ("Show log") and the phone screen state.
+- **First real test passed (2026-10-10, v3.0.0, Windows 11 build 26200):** adapter PdaNext came up as
+  192.168.42.2/24 via 192.168.42.1, no other default gateway, and Antigravity (the owner's main goal)
+  opens and works through the phone. Not yet confirmed: public IP = phone VPN IP, throughput/MTU.
 
 ## What was built (in order) and why
 1. Health check of v2: `adb reverse` instead of `adb forward` (could never connect), proxy only
@@ -67,7 +68,7 @@ Technical field notes: the `networking` skill.
   unchanged.
 - Kill switch (keep PC offline when the link drops) - offered, not requested yet.
 - Code signing for the MSI (SmartScreen warns today).
-- Real-device test pass; then tune MTU/window if throughput is low.
+- Real-device test passed (Antigravity works); tune MTU/window only if throughput is low.
 
 ## Environment gotchas (Claude Code cloud container)
 - `dl.google.com` blocked: no local Android SDK; rely on CI for the APK. GitHub release downloads
