@@ -79,7 +79,14 @@ internal class HttpProxySession(
     }
 
     private fun local(method: String, path: String) {
-        if (method == "GET" && path.substringBefore('?') == "/status") {
+        if (method == "GET" && path.substringBefore('?') == "/ping-pc") {
+            // Router mode: ICMP echo from the phone (gateway) to the PC's adapter.
+            val ms = relay.activeRouter?.pingClient()
+            val body = "{\"ms\":${ms ?: "null"}}".toByteArray()
+            output.write("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n".toByteArray())
+            output.write(body)
+            output.flush()
+        } else if (method == "GET" && path.substringBefore('?') == "/status") {
             val body = relay.statusJson().toByteArray()
             output.write(
                 ("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\n" +

@@ -40,6 +40,8 @@ class RelayService : Service() {
         val bytesDown: Long = 0,
         val activeTcp: Long = 0,
         val activeUdp: Long = 0,
+        /** True while the PC is attached in "phone as router" mode. */
+        val routerMode: Boolean = false,
     )
 
     private var relay: RelayServer? = null
@@ -71,8 +73,10 @@ class RelayService : Service() {
             port = RelayServer.DEFAULT_PORT,
             log = { Log.d(TAG, it) },
             statusExtras = { UplinkInfo.read(this).toStatus() + ("device" to "${Build.MANUFACTURER} ${Build.MODEL}") },
+            routerPlatform = AndroidRouterPlatform(),
         )
         relay = server
+        current = server
         scope.launch(Dispatchers.IO) {
             try {
                 server.start()
@@ -100,9 +104,10 @@ class RelayService : Service() {
                 bytesDown = s.bytesDown.get(),
                 activeTcp = s.activeTcp.get(),
                 activeUdp = s.activeUdp.get(),
+                routerMode = server.activeRouter != null,
             )
             _state.value = state
-            val text = if (state.activeTcp > 0) {
+            val text = if (state.routerMode || state.activeTcp > 0) {
                 "PC connected · ↓ ${formatBytes(state.bytesDown)} · ↑ ${formatBytes(state.bytesUp)}"
             } else {
                 "Waiting for the PC on USB"
@@ -131,6 +136,7 @@ class RelayService : Service() {
         scope.cancel()
         relay?.stop()
         relay = null
+        current = null
         runCatching { wakeLock?.takeIf { it.isHeld }?.release() }
         runCatching { wifiLock?.takeIf { it.isHeld }?.release() }
         if (_state.value.error == null) _state.value = State()
@@ -167,6 +173,11 @@ class RelayService : Service() {
         private const val CHANNEL_ID = "relay"
         private const val NOTIFICATION_ID = 1
         const val ACTION_STOP = "io.github.alimhbtwenty.pdanetnext.STOP"
+
+        @Volatile private var current: RelayServer? = null
+
+        /** Router mode: ICMP ping from the phone to the PC; milliseconds, or null. Blocking. */
+        fun pingPc(): Long? = current?.activeRouter?.pingClient()
 
         private val _state = MutableStateFlow(State())
         val state: StateFlow<State> = _state

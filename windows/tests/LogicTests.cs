@@ -1,20 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net;
+using System.Net.Sockets;
 using PdaNetNext;
 
 // Tests for the parts of the Windows app that do not need Windows.
 //   dotnet run --project windows/tests
-// Optional, when available:
-//   SING_BOX=/path/to/sing-box   validates the generated config with `sing-box check`
-//   RELAY_PORT=28080             fetches /status from a running relay (gradle -p core installDist)
-
-// `--emit-config <host> <port>` prints the config the app would write, for tests/e2e.
-if (args.Length == 3 && args[0] == "--emit-config")
-{
-    Console.Write(SingBoxConfig.Build(int.Parse(args[2]), keepLanDirect: true, relayHost: args[1]));
-    return 0;
-}
+// Optional, with a running relay (gradle -p core installDist && core/build/install/core/bin/core):
+//   RELAY_PORT=28080   fetches /status and does a router-mode handshake + ping over the real link code
 
 int failed = 0, passed = 0;
 
@@ -76,22 +70,6 @@ Test("phone status rejects a port that is not the relay", () =>
     catch (IOException) { }
 });
 
-string singBox = Environment.GetEnvironmentVariable("SING_BOX");
-foreach (bool lan in new[] { true, false })
-{
-    Test("generated sing-box config is valid (keepLanDirect=" + lan + ")", () =>
-    {
-        string json = SingBoxConfig.Build(28080, lan);
-        if (!json.Contains("\"udp_over_tcp\"") || !json.Contains("\"server_port\": 28080")) throw new Exception("missing relay outbound");
-        if (string.IsNullOrEmpty(singBox)) { Console.WriteLine("      (SING_BOX not set: schema check skipped)"); return; }
-        string path = Path.Combine(Path.GetTempPath(), "pdanet-next-test-" + lan + ".json");
-        File.WriteAllText(path, json);
-        var r = ProcessRunner.Run(singBox, "check -c " + path, 30000);
-        if (!r.Ok) throw new Exception("sing-box check: " + r.Output);
-        if (r.Output.Contains("WARN")) throw new Exception("sing-box warnings: " + r.Output);
-    });
-}
-
 string relayPort = Environment.GetEnvironmentVariable("RELAY_PORT");
 if (!string.IsNullOrEmpty(relayPort))
 {
@@ -100,7 +78,54 @@ if (!string.IsNullOrEmpty(relayPort))
         var s = PhoneStatus.Fetch(int.Parse(relayPort));
         Equal("3.0.0", s.Version);
     });
+
+    Test("router link: handshake, then ping the router through framed packets", () =>
+    {
+        using (var client = new TcpClient("127.0.0.1", int.Parse(relayPort)))
+        {
+            var stream = client.GetStream();
+            stream.ReadTimeout = 5000;
+            var hello = RouterLinkProtocol.Handshake(stream);
+            Equal("192.168.42.1", hello.Gateway4.ToString());
+            Equal("192.168.42.2", hello.Client4.ToString());
+            Equal("255.255.255.0", hello.Mask4);
+            Equal(9000, hello.Mtu);
+
+            byte[] echo = IcmpEcho(hello.Client4, hello.Gateway4, 0x1234, 7);
+            RouterLinkProtocol.WriteFrameHeader(stream, echo.Length);
+            stream.Write(echo, 0, echo.Length);
+
+            var buffer = new byte[65535];
+            int length;
+            while ((length = RouterLinkProtocol.ReadFrame(stream, buffer)) == 0) { }
+            Equal(1, buffer[9], "protocol");          // ICMP
+            Equal(0, (int)buffer[20], "icmp type");   // echo reply
+            Equal(0x1234, (buffer[24] << 8) | buffer[25], "icmp id");
+            Equal("192.168.42.1", new IPAddress(new[] { buffer[12], buffer[13], buffer[14], buffer[15] }).ToString(), "source");
+        }
+    });
 }
 
 Console.WriteLine($"--- {passed} passed, {failed} failed ---");
 return failed == 0 ? 0 : 1;
+
+static byte[] IcmpEcho(IPAddress src, IPAddress dst, int id, int seq)
+{
+    var p = new byte[20 + 8 + 4];
+    p[0] = 0x45; p[3] = (byte)p.Length; p[8] = 64; p[9] = 1;
+    src.GetAddressBytes().CopyTo(p, 12); dst.GetAddressBytes().CopyTo(p, 16);
+    Put16(p, 10, Checksum(p, 0, 20));
+    p[20] = 8; Put16(p, 24, id); Put16(p, 26, seq); p[28] = (byte)'p'; p[29] = (byte)'i'; p[30] = (byte)'n'; p[31] = (byte)'g';
+    Put16(p, 22, Checksum(p, 20, 12));
+    return p;
+}
+
+static int Checksum(byte[] b, int off, int len)
+{
+    long sum = 0;
+    for (int i = off; i < off + len; i += 2) sum += (b[i] << 8) | (i + 1 < off + len ? b[i + 1] : 0);
+    while ((sum >> 16) != 0) sum = (sum & 0xFFFF) + (sum >> 16);
+    return (int)(~sum & 0xFFFF);
+}
+
+static void Put16(byte[] b, int i, int v) { b[i] = (byte)(v >> 8); b[i + 1] = (byte)v; }

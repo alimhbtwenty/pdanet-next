@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Linq;
+using System.Net.NetworkInformation;
 using System.Windows.Forms;
 
 namespace PdaNetNext
@@ -90,11 +91,13 @@ namespace PdaNetNext
         bool trayHintShown;
 
         Dot statusDot;
-        Label lblStatus, lblDetail, lblPhone, lblUplink, lblVpn, lblDown, lblUp, lblTotal;
+        Label lblStatus, lblDetail, lblPhone, lblUplink, lblVpn, lblDown, lblUp, lblTotal, lblRouterPing, lblNetPing;
         RadioButton rbWholePc, rbBrowsers;
         Button btnConnect;
         ComboBox cbDevice;
-        CheckBox chkAuto, chkStartup, chkLan;
+        CheckBox chkAuto, chkStartup, chkDns;
+        readonly Timer pingTimer = new Timer { Interval = 2000 };
+        bool pinging;
         TextBox txtLog;
         LinkLabel lnkLog;
         ToolStripMenuItem trayConnect, trayStatus;
@@ -116,7 +119,7 @@ namespace PdaNetNext
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(480, 790);
+            ClientSize = new Size(480, 850);
             StartPosition = FormStartPosition.CenterScreen;
 
             BuildUi();
@@ -199,7 +202,7 @@ namespace PdaNetNext
             // Mode card
             var mode = AddCard(x, y, w, 118);
             mode.Controls.Add(MakeCaption("WHAT TO SHARE", 18, 14));
-            rbWholePc = MakeRadio("Whole PC: all apps, games, calls (recommended)", 18, 36, w - 36);
+            rbWholePc = MakeRadio("Whole PC: the phone becomes your router (recommended)", 18, 36, w - 36);
             rbBrowsers = MakeRadio("Browsers only: uses the Windows proxy setting", 18, 66, w - 36);
             mode.Controls.Add(rbWholePc);
             mode.Controls.Add(rbBrowsers);
@@ -224,7 +227,7 @@ namespace PdaNetNext
             y += 66;
 
             // Traffic card
-            var traffic = AddCard(x, y, w, 78);
+            var traffic = AddCard(x, y, w, 138);
             int third = (w - 36) / 3;
             traffic.Controls.Add(MakeCaption("DOWNLOAD", 18, 14));
             traffic.Controls.Add(MakeCaption("UPLOAD", 18 + third, 14));
@@ -233,7 +236,12 @@ namespace PdaNetNext
             lblUp = MakeLabel("0 KB/s", Theme.UI(11f, FontStyle.Bold), Theme.Text, 18 + third, 34, third);
             lblTotal = MakeLabel("0 MB", Theme.UI(11f, FontStyle.Bold), Theme.Text, 18 + 2 * third, 34, third);
             traffic.Controls.AddRange(new Control[] { lblDown, lblUp, lblTotal });
-            y += 90;
+            traffic.Controls.Add(MakeCaption("PING ROUTER (PHONE)", 18, 74));
+            traffic.Controls.Add(MakeCaption("PING INTERNET (1.1.1.1)", 18 + (w - 36) / 2, 74));
+            lblRouterPing = MakeLabel("—", Theme.UI(11f, FontStyle.Bold), Theme.Text, 18, 94, (w - 36) / 2);
+            lblNetPing = MakeLabel("—", Theme.UI(11f, FontStyle.Bold), Theme.Text, 18 + (w - 36) / 2, 94, (w - 36) / 2);
+            traffic.Controls.AddRange(new Control[] { lblRouterPing, lblNetPing });
+            y += 150;
 
             chkAuto = MakeCheck("Connect automatically when the phone is plugged in", x + 4, y, w);
             chkAuto.Checked = AppSettings.AutoConnect;
@@ -243,14 +251,13 @@ namespace PdaNetNext
             chkStartup.Checked = AppSettings.StartWithWindows;
             chkStartup.CheckedChanged += (s, e) => AppSettings.StartWithWindows = chkStartup.Checked;
             y += 28;
-            chkLan = MakeCheck("Keep my local network (printers, NAS) on the PC's own network", x + 4, y, w);
-            chkLan.Checked = AppSettings.KeepLanDirect;
-            chkLan.CheckedChanged += (s, e) =>
-            {
-                AppSettings.KeepLanDirect = chkLan.Checked;
-                if (bridge.State == BridgeState.Connected && bridge.ActiveMode == BridgeMode.WholePc) bridge.RequestConnect(BridgeMode.WholePc, SelectedSerial);
-            };
-            Controls.AddRange(new Control[] { chkAuto, chkStartup, chkLan });
+            chkDns = MakeCheck("Send all DNS to the phone (no DNS leaks outside the VPN)", x + 4, y, w);
+            chkDns.Checked = AppSettings.PreventDnsLeaks;
+            chkDns.CheckedChanged += (s, e) => AppSettings.PreventDnsLeaks = chkDns.Checked;
+            Controls.AddRange(new Control[] { chkAuto, chkStartup, chkDns });
+
+            pingTimer.Tick += async (s, e) => await PingOnce();
+            pingTimer.Start();
             y += 34;
 
             lnkLog = new LinkLabel
@@ -421,11 +428,42 @@ namespace PdaNetNext
             else if (list.Count == 1) lblPhone.Text = list[0].DisplayName + (list[0].Ready ? "" : "  (" + list[0].State + ")");
         }
 
+        /// <summary>Real ICMP pings through the adapter: to the phone itself, and to the internet via the phone.</summary>
+        async System.Threading.Tasks.Task PingOnce()
+        {
+            string router = bridge.RouterAddress;
+            if (pinging || bridge.State != BridgeState.Connected || router == null || !Visible)
+            {
+                if (bridge.State != BridgeState.Connected) lblRouterPing.Text = lblNetPing.Text = "—";
+                return;
+            }
+            pinging = true;
+            try
+            {
+                lblRouterPing.Text = await PingText(router);
+                lblNetPing.Text = await PingText("1.1.1.1");
+            }
+            finally { pinging = false; }
+        }
+
+        static async System.Threading.Tasks.Task<string> PingText(string host)
+        {
+            try
+            {
+                using (var p = new Ping())
+                {
+                    var reply = await p.SendPingAsync(host, 3000);
+                    return reply.Status == IPStatus.Success ? reply.RoundtripTime + " ms" : "timeout";
+                }
+            }
+            catch { return "—"; }
+        }
+
         void ToggleLog()
         {
             txtLog.Visible = !txtLog.Visible;
             lnkLog.Text = txtLog.Visible ? "Hide log" : "Show log";
-            ClientSize = new Size(ClientSize.Width, txtLog.Visible ? 790 + 160 : 790);
+            ClientSize = new Size(ClientSize.Width, txtLog.Visible ? 850 + 160 : 850);
         }
 
         void AppendLog(string line)

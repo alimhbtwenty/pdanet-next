@@ -1,5 +1,10 @@
 package io.github.alimhbtwenty.pdanetnext.core
 
+import io.github.alimhbtwenty.pdanetnext.core.router.JvmRouterPlatform
+import io.github.alimhbtwenty.pdanetnext.core.router.Router
+import io.github.alimhbtwenty.pdanetnext.core.router.RouterConfig
+import io.github.alimhbtwenty.pdanetnext.core.router.RouterLink
+import io.github.alimhbtwenty.pdanetnext.core.router.RouterPlatform
 import java.io.BufferedInputStream
 import java.io.DataInputStream
 import java.io.IOException
@@ -16,6 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * The phone-side relay. One TCP port that speaks:
+ *  - the router link ("PDNR"): raw IP packets from the PC's virtual adapter, NAT-ed by [Router],
  *  - SOCKS5 (CONNECT), including sing-box UDP-over-TCP v2 for UDP traffic,
  *  - HTTP proxy (CONNECT and absolute-form requests), for the PC's proxy-only mode,
  *  - `GET /status`, a JSON snapshot for the PC client.
@@ -29,6 +35,8 @@ class RelayServer(
     private val log: (String) -> Unit = {},
     /** Extra fields for the status endpoint, e.g. whether a phone VPN is active. */
     private val statusExtras: () -> Map<String, Any?> = { emptyMap() },
+    private val routerConfig: RouterConfig = RouterConfig(),
+    private val routerPlatform: RouterPlatform = JvmRouterPlatform(),
 ) {
     val stats = RelayStats()
 
@@ -37,6 +45,23 @@ class RelayServer(
     private val openSockets = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<Socket, Boolean>())
 
     val isRunning: Boolean get() = serverSocket?.isClosed == false
+
+    @Volatile private var link: RouterLink? = null
+
+    /** The router serving the connected PC, if one is attached in router mode. */
+    val activeRouter: Router? get() = link?.router
+
+    /** One PC at a time: a new link (e.g. after a reconnect) replaces the old one. */
+    @Synchronized
+    internal fun attachRouter(newLink: RouterLink) {
+        link?.close()
+        link = newLink
+    }
+
+    @Synchronized
+    internal fun detachRouter(old: RouterLink) {
+        if (link === old) link = null
+    }
 
     /** Binds synchronously (so callers learn about a busy port right away), then accepts in the background. */
     @Synchronized
@@ -56,6 +81,8 @@ class RelayServer(
     fun stop() {
         serverSocket?.let { closeQuietly(it) }
         serverSocket = null
+        link?.close()
+        link = null
         openSockets.forEach { closeQuietly(it) }
         openSockets.clear()
         executor?.shutdownNow()
@@ -89,14 +116,15 @@ class RelayServer(
             // Only the handshake has a deadline; established tunnels may idle forever.
             client.soTimeout = HANDSHAKE_TIMEOUT_MS
             val input = BufferedInputStream(client.getInputStream(), 16 * 1024)
-            input.mark(1)
+            input.mark(8)
             val first = input.read()
             if (first < 0) return
+            val isRouterLink = first == 'P'.code && input.read() == 'D'.code && input.read() == 'N'.code && input.read() == 'R'.code
             input.reset()
-            if (first == 0x05) {
-                Socks5Session(this, client, DataInputStream(input)).run()
-            } else {
-                HttpProxySession(this, client, input).run()
+            when {
+                isRouterLink -> RouterLink(this, client, input, routerConfig, routerPlatform).run()
+                first == 0x05 -> Socks5Session(this, client, DataInputStream(input)).run()
+                else -> HttpProxySession(this, client, input).run()
             }
         } catch (e: Exception) {
             if (e !is SocketException) log("session error: ${e.javaClass.simpleName}: ${e.message}")
@@ -171,6 +199,7 @@ class RelayServer(
             "activeUdp" to stats.activeUdp.get(),
             "totalConnections" to stats.totalConnections.get(),
             "failedConnections" to stats.failedConnections.get(),
+            "routerMode" to (link != null),
         )
         fields.putAll(runCatching(statusExtras).getOrDefault(emptyMap()))
         return Json.encode(fields)

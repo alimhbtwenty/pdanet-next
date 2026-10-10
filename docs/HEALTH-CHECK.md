@@ -72,12 +72,11 @@ use, **medium** = breaks in some cases, **low** = cleanup.
 
 ## Fix plan (implemented on this branch)
 
-- New phone engine (`core/`): one port that speaks SOCKS5 and HTTP proxy,
-  with UDP carried over TCP (sing-box UoT v2), no idle timeout on tunnels.
-  Pure Kotlin/JVM so it is unit-tested off-device.
-- PC: full-system mode through a Wintun virtual adapter driven by sing-box
-  (all apps, TCP+UDP, DNS resolved on the phone), plus a proxy-only fallback.
-  `adb forward`, per-device serial, background watchdog, crash-safe restore
-  of previous proxy settings, no TTL changes.
-- Phone VPN: the relay's sockets are opened by the app, so Android sends
-  them through any active VPN. The app shows whether a VPN is active.
+- New phone engine (`core/`, pure Kotlin/JVM, unit-tested off-device): a userspace NAT router
+  that receives the PC's raw IP packets over the USB link (TCP, UDP, ping, DNS), plus an HTTP/SOCKS
+  proxy on the same port for the proxy-only mode. No idle timeout on connections.
+- PC: "phone as router" mode with a Wintun adapter (gateway and DNS = the phone, default route,
+  NRPT rule against DNS leaks), plus a proxy-only fallback. `adb forward`, per-device serial,
+  background watchdog, crash-safe restore of DNS and proxy settings, no TTL changes.
+- Phone VPN: every flow is re-created by the phone app's own sockets, so Android sends it through
+  any active VPN. The app shows whether a VPN is active.

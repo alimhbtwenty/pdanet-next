@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 env:
-  SING_BOX_VERSION: "1.14.1"
+  WINTUN: "wintun-0.14.1.zip"
   PLATFORM_TOOLS: "platform-tools-latest-windows.zip"
 
 jobs:
@@ -28,26 +28,19 @@ jobs:
         with: { name: relay-desktop, path: core/build/install/core }
 
   e2e:
-    name: End-to-end bridge test (TUN -> relay)
+    name: End-to-end router test (TUN -> phone router)
     needs: relay-tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: "17" }
-      - uses: actions/setup-dotnet@v4
-        with: { dotnet-version: "8.0.x" }
       - uses: actions/download-artifact@v4
         with: { name: relay-desktop, path: core/build/install/core }
-      - name: Get sing-box
-        run: |
-          curl -fsSL -o sb.tgz "https://github.com/SagerNet/sing-box/releases/download/v${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION}-linux-amd64.tar.gz"
-          tar xzf sb.tgz && mv sing-box-*/sing-box /usr/local/bin/ 2>/dev/null || sudo mv sing-box-*/sing-box /usr/local/bin/
       - name: Run
         run: |
-          chmod +x core/build/install/core/bin/core tests/e2e/run-linux-e2e.sh
-          dotnet build windows/tests -nologo
-          sudo env "PATH=$PATH" "DOTNET_ROOT=${DOTNET_ROOT:-}" SING_BOX=/usr/local/bin/sing-box tests/e2e/run-linux-e2e.sh
+          chmod +x core/build/install/core/bin/core tests/e2e/run-router-e2e.sh
+          sudo env "PATH=$PATH" "JAVA_HOME=$JAVA_HOME" tests/e2e/run-router-e2e.sh
 
   android:
     name: Android APK
@@ -65,7 +58,7 @@ jobs:
 
   windows:
     name: Windows app
-    needs: android
+    needs: [android, relay-tests]
     runs-on: windows-latest
     defaults:
       run: { shell: pwsh }
@@ -73,19 +66,27 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: "8.0.x" }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
       - name: Build
         run: dotnet build windows/PdaNetNext.csproj -c Release -nologo
-      - name: Fetch adb and sing-box
+      - uses: actions/download-artifact@v4
+        with: { name: relay-desktop, path: relay }
+      - name: Logic tests (against a live relay)
+        run: |
+          $relay = Start-Process -PassThru -WindowStyle Hidden -FilePath relay/bin/core.bat -ArgumentList "--bind","127.0.0.1","--port","28080"
+          for ($i = 0; $i -lt 40; $i++) { if ((Test-NetConnection 127.0.0.1 -Port 28080 -WarningAction SilentlyContinue).TcpTestSucceeded) { break }; Start-Sleep -Milliseconds 500 }
+          $env:RELAY_PORT = "28080"
+          dotnet run --project windows/tests -nologo
+          $code = $LASTEXITCODE
+          Get-Process java -ErrorAction SilentlyContinue | Stop-Process -Force
+          if ($code -ne 0) { exit 1 }
+      - name: Fetch adb and wintun
         run: |
           Invoke-WebRequest "https://dl.google.com/android/repository/$env:PLATFORM_TOOLS" -OutFile pt.zip
           Expand-Archive pt.zip -DestinationPath pt
-          Invoke-WebRequest "https://github.com/SagerNet/sing-box/releases/download/v$env:SING_BOX_VERSION/sing-box-$env:SING_BOX_VERSION-windows-amd64.zip" -OutFile sb.zip
-          Expand-Archive sb.zip -DestinationPath sb
-      - name: Logic tests
-        run: |
-          $env:SING_BOX = (Get-ChildItem sb -Recurse -Filter sing-box.exe).FullName
-          dotnet run --project windows/tests -nologo
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Invoke-WebRequest "https://www.wintun.net/builds/$env:WINTUN" -OutFile wintun.zip
+          Expand-Archive wintun.zip -DestinationPath wt
       - uses: actions/download-artifact@v4
         with: { name: android-apk, path: apk }
       - name: Package
@@ -94,7 +95,8 @@ jobs:
           New-Item -ItemType Directory -Force "$out/bin" | Out-Null
           Copy-Item windows/out/bin/PdaNetNext/Release/PdaNet-Next.exe, windows/out/bin/PdaNetNext/Release/PdaNet-Next.exe.config $out
           Copy-Item pt/platform-tools/adb.exe, pt/platform-tools/AdbWinApi.dll, pt/platform-tools/AdbWinUsbApi.dll "$out/bin"
-          Copy-Item (Get-ChildItem sb -Recurse -File | Select-Object -ExpandProperty FullName) "$out/bin"
+          Copy-Item wt/wintun/bin/amd64/wintun.dll "$out/bin"
+          Copy-Item wt/wintun/LICENSE.txt "$out/bin/wintun-LICENSE.txt"
           Copy-Item apk/PdaNet-Next.apk "$out/bin"
           Copy-Item README.md $out
           Compress-Archive -Path $out -DestinationPath PdaNet-Next-Windows.zip
@@ -124,5 +126,5 @@ jobs:
             2. Turn on USB debugging on the phone and plug in the cable.
             3. Extract `PdaNet-Next-Windows.zip`, run `PdaNet-Next.exe` and press **Connect**.
 
-            "Whole PC" mode puts every app on the phone's connection, TCP and UDP, through a virtual
-            network adapter. If a VPN is on in the phone, the PC uses it too.
+            "Whole PC" mode makes the phone the PC's router (192.168.42.1) over USB: every app, TCP, UDP
+            and ping, goes out through the phone. If a VPN is on in the phone, the PC uses it too.

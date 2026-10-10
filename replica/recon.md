@@ -42,7 +42,9 @@ Plug phone in → tap "Connect" → the whole PC is online through the phone's c
   A relay app does not.
 
 That last point is the main design rule for PdaNet-Next: **relay in user space
-on the phone, capture everything with a virtual adapter on the PC.**
+on the phone, capture everything with a virtual adapter on the PC.** PdaNet-Next goes one step
+further and makes the phone a real router for the PC: raw IP packets cross the USB link and a
+userspace NAT on the phone re-creates each flow, so ping to the router and through it works too.
 
 ## Screens
 
@@ -98,7 +100,7 @@ See `features.csv`. Must: 10, should: 6, could: 3, skip: 3.
 
 - WiFi Direct / Bluetooth modes (user asked for USB; WiFi Direct is broken on recent Android anyway).
 - Mac client, paid licensing, FoxFi companion.
-- A signed kernel NDIS driver: replaced by Wintun (signed, used by WireGuard) via sing-box.
+- A signed kernel NDIS driver: replaced by Wintun (signed, used by WireGuard).
 
 ## Size
 

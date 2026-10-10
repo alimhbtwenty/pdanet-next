@@ -1,10 +1,11 @@
 feature,area,priority,original,clone,notes
 USB link phone to PC without root,link,must,yes,no,ADB forward over the USB debugging channel
-All PC apps online (not only browsers),pc capture,must,yes,no,original uses a virtual adapter driver; clone uses Wintun TUN via sing-box
+All PC apps online (not only browsers),pc capture,must,yes,no,original uses a virtual adapter driver; clone uses a Wintun adapter + userspace router on the phone
 Traffic follows phone VPN when one is active,phone relay,must,yes,no,relay sockets are opened by the phone app so Android routes them through the VPN
 TCP relay,phone relay,must,yes,no,
-UDP relay (DNS games calls QUIC),phone relay,must,yes,no,ADB only carries TCP; clone uses UDP-over-TCP (sing-box UoT v2)
-DNS resolved on the phone side,phone relay,must,partial,no,no DNS leak to the PC's other networks
+UDP relay (DNS games calls QUIC),phone relay,must,yes,no,raw IP packets framed over the ADB TCP stream; UDP NAT on the phone
+DNS resolved on the phone side,phone relay,must,partial,no,no DNS leak to the PC's other networks (NRPT)
+Ping the router and through it,phone relay,should,unknown,no,unprivileged ICMP socket on the phone
 One-click connect and disconnect on PC,pc ui,must,yes,no,
 Start/stop on phone with status,phone ui,must,yes,no,
 Auto-cleanup when cable is unplugged,pc ui,must,unknown,no,

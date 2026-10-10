@@ -124,6 +124,34 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="10dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnPingPc"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Ping PC"
+                android:textColor="@color/accent"
+                android:visibility="gone"
+                app:strokeColor="@color/accent" />
+
+            <TextView
+                android:id="@+id/tvPingPc"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp"
+                android:visibility="gone" />
+        </LinearLayout>
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnToggle"
             android:layout_width="match_parent"
@@ -228,7 +256,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:lineSpacingExtra="5dp"
-                    android:text="1. Turn on USB debugging and plug in the cable.\n2. Open PdaNet-Next on Windows and press Connect.\n3. Allow the USB debugging prompt on this phone the first time.\n\nIf a VPN is on here, the whole PC uses it too. Do not exclude PdaNet-Next from your VPN app's split tunneling."
+                    android:text="1. Turn on USB debugging and plug in the cable.\n2. Open PdaNet-Next on Windows and press Connect.\n3. Allow the USB debugging prompt on this phone the first time.\n\nThe phone works as the PC's router (192.168.42.1): the PC can ping it, and if a VPN is on here, the whole PC uses it too. Do not exclude PdaNet-Next from your VPN app's split tunneling."
                     android:textColor="@color/text_secondary"
                     android:textSize="13sp" />
             </LinearLayout>

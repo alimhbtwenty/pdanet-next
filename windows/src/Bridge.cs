@@ -23,10 +23,11 @@ namespace PdaNetNext
 
         public BridgeState State { get; private set; } = BridgeState.Disconnected;
         public BridgeMode ActiveMode { get; private set; }
+        /// <summary>The phone's address on the USB network while connected in Whole PC mode.</summary>
+        public string RouterAddress => tunnel?.Hello?.Gateway4?.ToString();
         public AdbDevice ActiveDevice { get; private set; }
 
         readonly int port = AppSettings.RelayPort;
-        readonly JobObject job = new JobObject();
         readonly AutoResetEvent wake = new AutoResetEvent(false);
         readonly Thread worker;
         volatile bool disposed;
@@ -35,7 +36,7 @@ namespace PdaNetNext
         volatile string wantSerial;
         volatile bool restartRequested;
 
-        Process singBox;
+        RouterTunnel tunnel;
         bool connected;
         int statusFailures;
         string lastDeviceKey = "";
@@ -43,7 +44,6 @@ namespace PdaNetNext
         DateTime retryAfter = DateTime.MinValue;
 
         static string BinDir => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "bin");
-        static string SingBoxExe => Path.Combine(BinDir, "sing-box.exe");
         static string PhoneApk => Path.Combine(BinDir, "PdaNet-Next.apk");
         static string DataDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PdaNet-Next");
 
@@ -86,7 +86,6 @@ namespace PdaNetNext
             wake.Set();
             worker.Join(8000);
             Teardown("app closed", BridgeState.Disconnected);
-            job.Dispose();
         }
 
         void Loop()
@@ -177,7 +176,7 @@ namespace PdaNetNext
             var mode = wantMode;
             if (mode == BridgeMode.WholePc)
             {
-                if (!StartSingBox()) return;
+                if (!StartTunnel()) return;
             }
             else
             {
@@ -191,7 +190,7 @@ namespace PdaNetNext
             statusFailures = 0;
             StatusUpdated?.Invoke(status);
             SetState(BridgeState.Connected, mode == BridgeMode.WholePc
-                ? "Whole PC is online through " + device.DisplayName
+                ? "Whole PC is online through " + device.DisplayName + " (router " + tunnel.Hello.Gateway4 + ")"
                 : "Browsers are online through " + device.DisplayName);
         }
 
@@ -223,49 +222,28 @@ namespace PdaNetNext
             return true;
         }
 
-        bool StartSingBox()
+        bool StartTunnel()
         {
-            if (!File.Exists(SingBoxExe))
+            var t = new RouterTunnel(Emit);
+            try
             {
-                SetState(BridgeState.Error, "bin\\sing-box.exe is missing. Re-extract the PdaNet-Next zip.");
+                t.Start(port, BinDir);
+            }
+            catch (Exception e)
+            {
+                t.Dispose();
+                SetState(BridgeState.Error, "Could not start the network adapter: " + e.Message);
                 return false;
             }
-            Directory.CreateDirectory(DataDir);
-            string config = Path.Combine(DataDir, "sing-box.json");
-            File.WriteAllText(config, SingBoxConfig.Build(port, AppSettings.KeepLanDirect), new UTF8Encoding(false));
-
-            var psi = new ProcessStartInfo(SingBoxExe, "run -c \"" + config + "\" -D \"" + DataDir + "\"")
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
-            var p = new Process { StartInfo = psi, EnableRaisingEvents = true };
-            p.OutputDataReceived += (s, e) => { if (e.Data != null) Emit("sing-box: " + e.Data); };
-            p.ErrorDataReceived += (s, e) => { if (e.Data != null) Emit("sing-box: " + e.Data); };
-            p.Exited += (s, e) => wake.Set();
-            p.Start();
-            try { job.Add(p); } catch (Exception e) { Emit("job object: " + e.Message); }
-            p.BeginOutputReadLine();
-            p.BeginErrorReadLine();
-
-            // sing-box exits within a second when the config or the adapter is rejected.
-            if (p.WaitForExit(2500))
-            {
-                SetState(BridgeState.Error, "The virtual adapter could not start (see log). Is another VPN or TUN app running?");
-                return false;
-            }
-            singBox = p;
+            tunnel = t;
             return true;
         }
 
         void CheckHealth(List<AdbDevice> devices)
         {
-            if (singBox != null && singBox.HasExited)
+            if (tunnel != null && !tunnel.IsAlive)
             {
-                Emit("sing-box exited with code " + singBox.ExitCode + ", restarting the bridge");
-                Teardown("adapter stopped", BridgeState.Connecting);
+                Teardown(tunnel.StopReason ?? "link stopped", BridgeState.Connecting);
                 return;
             }
 
@@ -302,16 +280,13 @@ namespace PdaNetNext
         {
             bool wasConnected = connected;
             connected = false;
-            if (singBox != null)
+            if (tunnel != null)
             {
-                try { if (!singBox.HasExited) { singBox.Kill(); singBox.WaitForExit(5000); } } catch { }
-                singBox.Dispose();
-                singBox = null;
+                try { tunnel.Dispose(); } catch (Exception e) { Emit("adapter cleanup: " + e.Message); }
+                tunnel = null;
             }
             try { SystemProxy.Restore(); } catch (Exception e) { Emit("proxy restore: " + e.Message); }
             if (ActiveDevice != null) Adb.Run(ActiveDevice.Serial, "forward --remove tcp:" + port, 5000);
-            // Drop cached fake-IP answers so apps resolve normally again.
-            ProcessRunner.Run("ipconfig.exe", "/flushdns", 5000);
             AppSettings.ActiveSession = null;
             if (wasConnected) Emit("Disconnected (" + reason + ")");
             SetState(next, next == BridgeState.Disconnected ? "Not connected" : "Reconnecting…");
@@ -322,14 +297,8 @@ namespace PdaNetNext
             string stale = AppSettings.ActiveSession;
             if (stale == null && !SystemProxy.HasBackup) return;
             Emit("Previous session did not close cleanly; restoring network settings");
-            foreach (var p in Process.GetProcessesByName("sing-box"))
-            {
-                try
-                {
-                    if (string.Equals(p.MainModule.FileName, SingBoxExe, StringComparison.OrdinalIgnoreCase)) p.Kill();
-                }
-                catch { }
-            }
+            // The adapter itself vanished with the old process; the DNS rule and proxy did not.
+            try { NetConfig.Remove(Emit); } catch (Exception e) { Emit("DNS rule cleanup: " + e.Message); }
             try { SystemProxy.Restore(); } catch (Exception e) { Emit("proxy restore: " + e.Message); }
             AppSettings.ActiveSession = null;
         }

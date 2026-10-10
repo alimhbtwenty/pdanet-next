@@ -16,8 +16,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.button.MaterialButton
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : AppCompatActivity() {
 
@@ -32,6 +34,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvUdp: TextView
     private lateinit var btnToggle: MaterialButton
     private lateinit var cardAdbWarning: View
+    private lateinit var btnPingPc: MaterialButton
+    private lateinit var tvPingPc: TextView
 
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { RelayService.start(this) }
@@ -51,6 +55,17 @@ class MainActivity : AppCompatActivity() {
         tvUdp = findViewById(R.id.tvUdp)
         btnToggle = findViewById(R.id.btnToggle)
         cardAdbWarning = findViewById(R.id.cardAdbWarning)
+        btnPingPc = findViewById(R.id.btnPingPc)
+        tvPingPc = findViewById(R.id.tvPingPc)
+        btnPingPc.setOnClickListener {
+            tvPingPc.text = "Pinging 192.168.42.2…"
+            lifecycleScope.launch {
+                val results = withContext(Dispatchers.IO) { List(4) { RelayService.pingPc() } }
+                val ok = results.filterNotNull()
+                tvPingPc.text = if (ok.isEmpty()) "No reply from the PC"
+                else "Reply from 192.168.42.2: ${ok.size}/4, avg ${ok.average().toLong()} ms"
+            }
+        }
 
         btnToggle.setOnClickListener {
             if (RelayService.state.value.running) RelayService.stop(this) else startRelay()
@@ -102,7 +117,8 @@ class MainActivity : AppCompatActivity() {
         val (title, detail, color) = when {
             state.error != null -> Triple("Error", state.error, R.color.status_error)
             !state.running -> Triple("Off", "Tap Start, then press Connect in the PC app.", R.color.status_off)
-            state.activeTcp > 0 -> Triple("PC connected", "Your PC is online through this phone.", R.color.status_on)
+            state.routerMode -> Triple("PC connected", "This phone is the PC's router (192.168.42.1). All its traffic goes out from here.", R.color.status_on)
+            state.activeTcp > 0 -> Triple("PC connected", "Your PC is online through this phone (proxy mode).", R.color.status_on)
             else -> Triple("Ready", "Waiting for the PC app over USB.", R.color.status_wait)
         }
         tvStatus.text = title
@@ -112,6 +128,8 @@ class MainActivity : AppCompatActivity() {
         tvUp.text = formatBytes(state.bytesUp)
         tvTcp.text = state.activeTcp.toString()
         tvUdp.text = state.activeUdp.toString()
+        btnPingPc.visibility = if (state.routerMode) View.VISIBLE else View.GONE
+        tvPingPc.visibility = btnPingPc.visibility
         btnToggle.text = if (state.running) "Stop" else "Start"
         btnToggle.backgroundTintList = ColorStateList.valueOf(
             getColor(if (state.running) R.color.button_stop else R.color.button_start)

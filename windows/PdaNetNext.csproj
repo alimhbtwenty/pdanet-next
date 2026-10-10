@@ -15,8 +15,9 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
-    <PlatformTarget>AnyCPU</PlatformTarget>
+    <PlatformTarget>x64</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>
+    <!-- bin\wintun.dll is the amd64 build; x64 also runs under emulation on ARM64 Windows. -->
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="src\**\*.cs" />

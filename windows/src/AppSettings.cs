@@ -25,10 +25,11 @@ namespace PdaNetNext
             set => SetInt("AutoConnect", value ? 1 : 0);
         }
 
-        public static bool KeepLanDirect
+        /// <summary>Send every DNS query to the phone (NRPT rule), not also to the PC's other networks.</summary>
+        public static bool PreventDnsLeaks
         {
-            get => GetInt("KeepLanDirect", 1) == 1;
-            set => SetInt("KeepLanDirect", value ? 1 : 0);
+            get => GetInt("PreventDnsLeaks", 1) == 1;
+            set => SetInt("PreventDnsLeaks", value ? 1 : 0);
         }
 
         /// <summary>Mode of a session that was never cleanly closed, or null. Used to repair after a crash.</summary>
