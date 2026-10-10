@@ -69,7 +69,7 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: "17" }
       - name: Build
-        run: dotnet build windows/PdaNext.csproj -c Release -nologo -p:Version=3.0.${{ github.run_number }}
+        run: dotnet build windows/PdaNext.csproj -c Release -nologo
       - uses: actions/download-artifact@v4
         with: { name: relay-desktop, path: relay }
       - name: Logic tests (against a live relay)
@@ -105,9 +105,10 @@ jobs:
           dotnet tool install --global wix --version 5.0.2
           wix extension add -g WixToolset.UI.wixext/5.0.2
           wix extension add -g WixToolset.Util.wixext/5.0.2
+          $version = (Get-Content VERSION -Raw).Trim()
           wix build windows/installer/PdaNext.wxs -arch x64 `
             -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext `
-            -d Version=3.0.${{ github.run_number }} -d SourceDir="$PWD\release\PdaNext" `
+            -d Version=$version -d SourceDir="$PWD\release\PdaNext" `
             -o PdaNext-Setup.msi
           if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Check the MSI installs and uninstalls
@@ -130,16 +131,33 @@ jobs:
     needs: [e2e, windows]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      # A release is published once per version: bump VERSION to ship a new one.
+      - name: Read version
+        id: v
+        run: |
+          v="$(tr -d '[:space:]' < VERSION)"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$v" >/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "v$v is already released; bump VERSION to publish a new release."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/download-artifact@v4
+        if: steps.v.outputs.exists == 'false'
         with: { name: windows-zip }
       - uses: actions/download-artifact@v4
+        if: steps.v.outputs.exists == 'false'
         with: { name: windows-msi }
       - uses: actions/download-artifact@v4
+        if: steps.v.outputs.exists == 'false'
         with: { name: android-apk }
       - uses: softprops/action-gh-release@v2
+        if: steps.v.outputs.exists == 'false'
         with:
-          tag_name: v3.0.${{ github.run_number }}
-          name: PdaNext v3.0.${{ github.run_number }}
+          tag_name: v${{ steps.v.outputs.version }}
+          name: PdaNext ${{ steps.v.outputs.version }}
           make_latest: true
           files: |
             PdaNext-Setup.msi
@@ -150,5 +168,5 @@ jobs:
             2. Turn on USB debugging on the phone and plug in the cable.
             3. Install `PdaNext-Setup.msi` (or extract the portable `PdaNext-Windows.zip`), open PdaNext and press **Connect**.
 
-            "Whole PC" mode makes the phone the PC's router (192.168.42.1) over USB: every app, TCP, UDP
-            and ping, goes out through the phone. If a VPN is on in the phone, the PC uses it too.
+            The phone becomes the PC's router (192.168.42.1) over USB: every app, TCP, UDP and ping,
+            goes out through the phone. If a VPN is on in the phone, the PC uses it too.

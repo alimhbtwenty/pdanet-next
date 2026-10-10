@@ -30,6 +30,13 @@ class RelayServerTest {
     }
 
     @Test
+    fun `reported version matches the VERSION file`() {
+        val file = generateSequence(java.io.File("").absoluteFile) { it.parentFile }
+            .map { java.io.File(it, "VERSION") }.first { it.exists() }
+        assertEquals(file.readText().trim(), RelayServer.VERSION)
+    }
+
+    @Test
     fun `ping-pc without a PC attached says null`() {
         assertTrue(get("/ping-pc").endsWith("{\"ms\":null}"))
     }

@@ -39,6 +39,8 @@ More context: `.claude/skills/pdanext/SKILL.md` (history, decisions, owner prefe
   shared by phone and PC: change both sides together and keep `windows/tests` + e2e green.
 - Never reintroduce a proxy mode or fake-IP DNS; never change the PC's global TTL.
 - The router withholds AAAA/HTTPS DNS answers on purpose (prevents IPv6 leaking around the phone).
-- Work on a branch, open a PR, wait for CI green, merge to `main`; `main` publishes release
-  `v3.0.<run>` with `PdaNext-Setup.msi`, `PdaNext-Windows.zip`, `PdaNext.apk`.
+- Version lives in the root `VERSION` file only (Android, exe, MSI, release tag read it; a unit test
+  checks `RelayServer.VERSION` matches). Work on a branch, open a PR, wait for CI green, merge to
+  `main`. `main` publishes release `v<VERSION>` (`PdaNext-Setup.msi`, `PdaNext-Windows.zip`,
+  `PdaNext.apk`) only if that tag does not exist yet: bump `VERSION` to ship a new release.
 - The owner writes in Persian; reply in Persian. Code, commits and docs in English.
