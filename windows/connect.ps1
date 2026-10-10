@@ -7,6 +7,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Bulletproof interrupt handler for SIGINT (Ctrl+C) and unhandled pipeline termination
+trap {
+    Write-Host "`n  [!] Interrupted. Running automatic cleanup..." -ForegroundColor Red
+    & (Join-Path $PSScriptRoot "disconnect.ps1") -Quiet
+    exit 1
+}
+
 # 0. Check Administrator Privileges
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
