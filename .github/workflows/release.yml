@@ -1,78 +1,128 @@
-name: Build PdaNet-Next Release
+name: Build, test and release
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["**"]
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: write
 
+env:
+  SING_BOX_VERSION: "1.14.1"
+  PLATFORM_TOOLS: "platform-tools_r35.0.2-windows.zip"
+
 jobs:
-  build:
+  relay-tests:
+    name: Relay engine tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "8.10.2" }
+      - run: gradle -p core test installDist --stacktrace
+      - uses: actions/upload-artifact@v4
+        with: { name: relay-desktop, path: core/build/install/core }
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-
-      - name: Generate Gradle Wrapper
-        working-directory: android
+  e2e:
+    name: End-to-end bridge test (TUN -> relay)
+    needs: relay-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "8.0.x" }
+      - uses: actions/download-artifact@v4
+        with: { name: relay-desktop, path: core/build/install/core }
+      - name: Get sing-box
         run: |
-          gradle wrapper --gradle-version 8.10.2 --distribution-type bin
-
-      - name: Build Android APK
-        working-directory: android
+          curl -fsSL -o sb.tgz "https://github.com/SagerNet/sing-box/releases/download/v${SING_BOX_VERSION}/sing-box-${SING_BOX_VERSION}-linux-amd64.tar.gz"
+          tar xzf sb.tgz && mv sing-box-*/sing-box /usr/local/bin/ 2>/dev/null || sudo mv sing-box-*/sing-box /usr/local/bin/
+      - name: Run
         run: |
-          chmod +x gradlew
-          ./gradlew :app:assembleDebug --stacktrace
+          chmod +x core/build/install/core/bin/core tests/e2e/run-linux-e2e.sh
+          dotnet build windows/tests -nologo
+          sudo env "PATH=$PATH" "DOTNET_ROOT=${DOTNET_ROOT:-}" SING_BOX=/usr/local/bin/sing-box tests/e2e/run-linux-e2e.sh
 
-      - name: Package Windows 11 Companion
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "8.10.2" }
+      - run: gradle -p android :app:assembleRelease --stacktrace
+      - run: cp android/app/build/outputs/apk/release/app-release.apk PdaNet-Next.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: android-apk, path: PdaNet-Next.apk }
+
+  windows:
+    name: Windows app
+    needs: android
+    runs-on: windows-latest
+    defaults:
+      run: { shell: pwsh }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "8.0.x" }
+      - name: Build
+        run: dotnet build windows/PdaNetNext.csproj -c Release -nologo
+      - name: Fetch adb and sing-box
         run: |
-          mkdir -p release-bundle/bin
-          cp windows/PdaNet-Next.exe release-bundle/
-          cp -r windows/bin/* release-bundle/bin/
-          cp README.md release-bundle/
-          cd release-bundle && zip -r ../PdaNet-Next-Windows-Portable.zip . && cd ..
+          Invoke-WebRequest "https://dl.google.com/android/repository/$env:PLATFORM_TOOLS" -OutFile pt.zip
+          Expand-Archive pt.zip -DestinationPath pt
+          Invoke-WebRequest "https://github.com/SagerNet/sing-box/releases/download/v$env:SING_BOX_VERSION/sing-box-$env:SING_BOX_VERSION-windows-amd64.zip" -OutFile sb.zip
+          Expand-Archive sb.zip -DestinationPath sb
+      - name: Logic tests
+        run: |
+          $env:SING_BOX = (Get-ChildItem sb -Recurse -Filter sing-box.exe).FullName
+          dotnet run --project windows/tests -nologo
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - uses: actions/download-artifact@v4
+        with: { name: android-apk, path: apk }
+      - name: Package
+        run: |
+          $out = "release/PdaNet-Next"
+          New-Item -ItemType Directory -Force "$out/bin" | Out-Null
+          Copy-Item windows/out/bin/PdaNetNext/Release/PdaNet-Next.exe, windows/out/bin/PdaNetNext/Release/PdaNet-Next.exe.config $out
+          Copy-Item pt/platform-tools/adb.exe, pt/platform-tools/AdbWinApi.dll, pt/platform-tools/AdbWinUsbApi.dll "$out/bin"
+          Copy-Item (Get-ChildItem sb -Recurse -File | Select-Object -ExpandProperty FullName) "$out/bin"
+          Copy-Item apk/PdaNet-Next.apk "$out/bin"
+          Copy-Item README.md $out
+          Compress-Archive -Path $out -DestinationPath PdaNet-Next-Windows.zip
+      - uses: actions/upload-artifact@v4
+        with: { name: windows-zip, path: PdaNet-Next-Windows.zip }
 
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
+  release:
+    name: Publish release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [e2e, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: windows-zip }
+      - uses: actions/download-artifact@v4
+        with: { name: android-apk }
+      - uses: softprops/action-gh-release@v2
         with:
-          name: pdanet-next-debug-apk
-          path: android/app/build/outputs/apk/debug/*.apk
-
-      - name: Upload Windows 11 Bundle Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: pdanet-next-windows-portable
-          path: PdaNet-Next-Windows-Portable.zip
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: github.ref == 'refs/heads/main'
-        with:
-          tag_name: v2.0.${{ github.run_number }}
-          name: PdaNet-Next v2.0.${{ github.run_number }}
+          tag_name: v3.0.${{ github.run_number }}
+          name: PdaNet-Next v3.0.${{ github.run_number }}
           make_latest: true
           files: |
-            android/app/build/outputs/apk/debug/*.apk
-            PdaNet-Next-Windows-Portable.zip
-            windows/PdaNet-Next.exe
+            PdaNet-Next-Windows.zip
+            PdaNet-Next.apk
           body: |
-            ## PdaNet-Next v2.0 (Pure USB Carrier-Bypass Tethering)
-            
-            ### Android:
-            - Download and install the `.apk` on your Android device.
-            - Tap **START USB TETHER**.
-            
-            ### Windows 11:
-            - Download `pdanet-next-windows11-scripts.zip` and extract.
-            - Plug USB cable and run `windows\connect.ps1` as Administrator.
-            - Carrier hotspot counter untouched (native TTL 64). Zero kernel drivers.
+            1. Install `PdaNet-Next.apk` on the phone (or let the Windows app install it over USB).
+            2. Turn on USB debugging on the phone and plug in the cable.
+            3. Extract `PdaNet-Next-Windows.zip`, run `PdaNet-Next.exe` and press **Connect**.
+
+            "Whole PC" mode puts every app on the phone's connection, TCP and UDP, through a virtual
+            network adapter. If a VPN is on in the phone, the PC uses it too.

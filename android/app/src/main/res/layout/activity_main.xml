@@ -1,161 +1,237 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="24dp"
-    android:background="#0B0F19">
+    android:background="@color/bg"
+    android:fillViewport="true">
 
-    <!-- Header -->
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="PdaNet-Next"
-        android:textColor="#FFFFFF"
-        android:textSize="26sp"
-        android:textStyle="bold" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Carrier-Bypass USB Tethering for Windows 11"
-        android:textColor="#94A3B8"
-        android:textSize="13sp"
-        android:layout_marginBottom="24dp" />
-
-    <!-- Status Card -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="#131B2E"
-        android:padding="20dp"
-        android:layout_marginBottom="20dp">
+        android:paddingHorizontal="20dp"
+        android:paddingTop="28dp"
+        android:paddingBottom="24dp">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="ENGINE STATUS"
-            android:textColor="#94A3B8"
-            android:textSize="11sp"
+            android:text="PdaNet-Next"
+            android:textColor="@color/text_primary"
+            android:textSize="28sp"
             android:textStyle="bold" />
 
         <TextView
-            android:id="@+id/tvStatus"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="OFFLINE"
-            android:textColor="#A0AEC0"
+            android:layout_marginBottom="22dp"
+            android:text="Share this phone's internet with your Windows PC over USB"
+            android:textColor="@color/text_secondary"
+            android:textSize="14sp" />
+
+        <!-- Status -->
+        <com.google.android.material.card.MaterialCardView style="@style/Card">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="20dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <View
+                        android:id="@+id/statusDot"
+                        android:layout_width="12dp"
+                        android:layout_height="12dp"
+                        android:layout_marginEnd="10dp"
+                        android:background="@drawable/dot"
+                        android:backgroundTint="@color/status_off" />
+
+                    <TextView
+                        android:id="@+id/tvStatus"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Off"
+                        android:textColor="@color/text_primary"
+                        android:textSize="22sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvStatusDetail"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="Tap Start, then press Connect in the PC app."
+                    android:textColor="@color/text_secondary"
+                    android:textSize="14sp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp"
+                    android:orientation="horizontal">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        <TextView style="@style/Label" android:text="Downloaded" />
+                        <TextView android:id="@+id/tvDown" style="@style/Value" android:text="0 KB" android:textColor="@color/accent" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        <TextView style="@style/Label" android:text="Uploaded" />
+                        <TextView android:id="@+id/tvUp" style="@style/Value" android:text="0 KB" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:orientation="horizontal">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        <TextView style="@style/Label" android:text="TCP connections" />
+                        <TextView android:id="@+id/tvTcp" style="@style/Value" android:text="0" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+                        <TextView style="@style/Label" android:text="UDP sessions" />
+                        <TextView android:id="@+id/tvUdp" style="@style/Value" android:text="0" />
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnToggle"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:layout_marginBottom="14dp"
+            android:backgroundTint="@color/button_start"
+            android:text="Start"
+            android:textColor="#FFFFFF"
             android:textSize="18sp"
             android:textStyle="bold"
-            android:layout_marginTop="6dp" />
+            app:cornerRadius="18dp" />
 
-        <!-- Stats Row -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="16dp">
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="DATA SERVED"
-                    android:textColor="#64748B"
-                    android:textSize="10sp" />
-                <TextView
-                    android:id="@+id/tvTransfer"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="0 MB"
-                    android:textColor="#38BDF8"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
+        <!-- USB debugging warning -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardAdbWarning"
+            style="@style/Card"
+            android:visibility="gone"
+            app:cardBackgroundColor="@color/warning_bg"
+            app:strokeColor="@color/status_wait">
 
             <LinearLayout
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
+                android:orientation="vertical"
+                android:padding="18dp">
+
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="ACTIVE CONNS"
-                    android:textColor="#64748B"
-                    android:textSize="10sp" />
-                <TextView
-                    android:id="@+id/tvClients"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="0"
-                    android:textColor="#10B981"
+                    android:text="USB debugging is off"
+                    android:textColor="@color/status_wait"
                     android:textSize="16sp"
                     android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="The PC talks to this app through USB debugging. Turn it on in Developer options (tap Build number 7 times in About phone to unlock them)."
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnDeveloperOptions"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Open Developer options"
+                    android:textColor="@color/status_wait" />
             </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Uplink -->
+        <com.google.android.material.card.MaterialCardView style="@style/Card">
 
             <LinearLayout
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-                <TextView
-                    android:layout_width="wrap_content"
+                android:orientation="horizontal"
+                android:padding="20dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:text="OUTGOING TTL"
-                    android:textColor="#64748B"
-                    android:textSize="10sp" />
-                <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView style="@style/Label" android:text="Phone internet" />
+                    <TextView android:id="@+id/tvUplink" style="@style/Value" android:text="…" android:textSize="16sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:text="64 (Native)"
-                    android:textColor="#F59E0B"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView style="@style/Label" android:text="VPN" />
+                    <TextView android:id="@+id/tvVpn" style="@style/Value" android:text="…" android:textSize="16sp" />
+                </LinearLayout>
             </LinearLayout>
-        </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- How to -->
+        <com.google.android.material.card.MaterialCardView style="@style/Card">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="20dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:text="How to connect"
+                    android:textColor="@color/accent"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:lineSpacingExtra="5dp"
+                    android:text="1. Turn on USB debugging and plug in the cable.\n2. Open PdaNet-Next on Windows and press Connect.\n3. Allow the USB debugging prompt on this phone the first time.\n\nIf a VPN is on here, the whole PC uses it too. Do not exclude PdaNet-Next from your VPN app's split tunneling."
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
     </LinearLayout>
-
-    <!-- Main Toggle Action -->
-    <Button
-        android:id="@+id/btnToggle"
-        android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:text="START USB TETHER"
-        android:textStyle="bold"
-        android:textColor="#FFFFFF"
-        android:backgroundTint="#2563EB"
-        android:layout_marginBottom="24dp" />
-
-    <!-- Guide Steps Card -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:background="#131B2E"
-        android:padding="16dp">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="WINDOWS 11 QUICK CONNECT"
-            android:textColor="#38BDF8"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="8dp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="1. Plug USB cable and tap 'Start USB Tether' above\n2. Open PowerShell on Windows 11 as Admin\n3. Run:  .\\windows\\connect.ps1\n\nNo drivers needed. Carrier hotspot counter untouched."
-            android:textColor="#94A3B8"
-            android:textSize="12sp"
-            android:lineSpacingExtra="4dp" />
-    </LinearLayout>
-
-</LinearLayout>
+</ScrollView>
