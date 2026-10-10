@@ -1,78 +1,130 @@
-name: Build PdaNet-Next Release
+name: Build, test and release
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["**"]
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: write
 
+env:
+  WINTUN: "wintun-0.14.1.zip"
+  PLATFORM_TOOLS: "platform-tools-latest-windows.zip"
+
 jobs:
-  build:
+  relay-tests:
+    name: Relay engine tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "8.10.2" }
+      - run: gradle -p core test installDist --stacktrace
+      - uses: actions/upload-artifact@v4
+        with: { name: relay-desktop, path: core/build/install/core }
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-
-      - name: Generate Gradle Wrapper
-        working-directory: android
+  e2e:
+    name: End-to-end router test (TUN -> phone router)
+    needs: relay-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: actions/download-artifact@v4
+        with: { name: relay-desktop, path: core/build/install/core }
+      - name: Run
         run: |
-          gradle wrapper --gradle-version 8.10.2 --distribution-type bin
+          chmod +x core/build/install/core/bin/core tests/e2e/run-router-e2e.sh
+          sudo env "PATH=$PATH" "JAVA_HOME=$JAVA_HOME" tests/e2e/run-router-e2e.sh
 
-      - name: Build Android APK
-        working-directory: android
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "8.10.2" }
+      - run: gradle -p android :app:assembleRelease --stacktrace
+      - run: cp android/app/build/outputs/apk/release/app-release.apk PdaNext.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: android-apk, path: PdaNext.apk }
+
+  windows:
+    name: Windows app
+    needs: [android, relay-tests]
+    runs-on: windows-latest
+    defaults:
+      run: { shell: pwsh }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "8.0.x" }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - name: Build
+        run: dotnet build windows/PdaNext.csproj -c Release -nologo
+      - uses: actions/download-artifact@v4
+        with: { name: relay-desktop, path: relay }
+      - name: Logic tests (against a live relay)
         run: |
-          chmod +x gradlew
-          ./gradlew :app:assembleDebug --stacktrace
-
-      - name: Package Windows 11 Companion
+          $relay = Start-Process -PassThru -WindowStyle Hidden -FilePath relay/bin/core.bat -ArgumentList "--bind","127.0.0.1","--port","28080"
+          for ($i = 0; $i -lt 40; $i++) { if ((Test-NetConnection 127.0.0.1 -Port 28080 -WarningAction SilentlyContinue).TcpTestSucceeded) { break }; Start-Sleep -Milliseconds 500 }
+          $env:RELAY_PORT = "28080"
+          dotnet run --project windows/tests -nologo
+          $code = $LASTEXITCODE
+          Get-Process java -ErrorAction SilentlyContinue | Stop-Process -Force
+          if ($code -ne 0) { exit 1 }
+      - name: Fetch adb and wintun
         run: |
-          mkdir -p release-bundle/bin
-          cp windows/PdaNet-Next.exe release-bundle/
-          cp -r windows/bin/* release-bundle/bin/
-          cp README.md release-bundle/
-          cd release-bundle && zip -r ../PdaNet-Next-Windows-Portable.zip . && cd ..
+          Invoke-WebRequest "https://dl.google.com/android/repository/$env:PLATFORM_TOOLS" -OutFile pt.zip
+          Expand-Archive pt.zip -DestinationPath pt
+          Invoke-WebRequest "https://www.wintun.net/builds/$env:WINTUN" -OutFile wintun.zip
+          Expand-Archive wintun.zip -DestinationPath wt
+      - uses: actions/download-artifact@v4
+        with: { name: android-apk, path: apk }
+      - name: Package
+        run: |
+          $out = "release/PdaNext"
+          New-Item -ItemType Directory -Force "$out/bin" | Out-Null
+          Copy-Item windows/out/bin/PdaNext/Release/PdaNext.exe, windows/out/bin/PdaNext/Release/PdaNext.exe.config $out
+          Copy-Item pt/platform-tools/adb.exe, pt/platform-tools/AdbWinApi.dll, pt/platform-tools/AdbWinUsbApi.dll "$out/bin"
+          Copy-Item wt/wintun/bin/amd64/wintun.dll "$out/bin"
+          Copy-Item wt/wintun/LICENSE.txt "$out/bin/wintun-LICENSE.txt"
+          Copy-Item apk/PdaNext.apk "$out/bin"
+          Copy-Item README.md $out
+          Compress-Archive -Path $out -DestinationPath PdaNext-Windows.zip
+      - uses: actions/upload-artifact@v4
+        with: { name: windows-zip, path: PdaNext-Windows.zip }
 
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
+  release:
+    name: Publish release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [e2e, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: windows-zip }
+      - uses: actions/download-artifact@v4
+        with: { name: android-apk }
+      - uses: softprops/action-gh-release@v2
         with:
-          name: pdanet-next-debug-apk
-          path: android/app/build/outputs/apk/debug/*.apk
-
-      - name: Upload Windows 11 Bundle Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: pdanet-next-windows-portable
-          path: PdaNet-Next-Windows-Portable.zip
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: github.ref == 'refs/heads/main'
-        with:
-          tag_name: v2.0.${{ github.run_number }}
-          name: PdaNet-Next v2.0.${{ github.run_number }}
+          tag_name: v3.0.${{ github.run_number }}
+          name: PdaNext v3.0.${{ github.run_number }}
           make_latest: true
           files: |
-            android/app/build/outputs/apk/debug/*.apk
-            PdaNet-Next-Windows-Portable.zip
-            windows/PdaNet-Next.exe
+            PdaNext-Windows.zip
+            PdaNext.apk
           body: |
-            ## PdaNet-Next v2.0 (Pure USB Carrier-Bypass Tethering)
-            
-            ### Android:
-            - Download and install the `.apk` on your Android device.
-            - Tap **START USB TETHER**.
-            
-            ### Windows 11:
-            - Download `pdanet-next-windows11-scripts.zip` and extract.
-            - Plug USB cable and run `windows\connect.ps1` as Administrator.
-            - Carrier hotspot counter untouched (native TTL 64). Zero kernel drivers.
+            1. Install `PdaNext.apk` on the phone (or let the Windows app install it over USB).
+            2. Turn on USB debugging on the phone and plug in the cable.
+            3. Extract `PdaNext-Windows.zip`, run `PdaNext.exe` and press **Connect**.
+
+            "Whole PC" mode makes the phone the PC's router (192.168.42.1) over USB: every app, TCP, UDP
+            and ping, goes out through the phone. If a VPN is on in the phone, the PC uses it too.

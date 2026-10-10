@@ -12,5 +12,8 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "pdanet-next"
+rootProject.name = "pdanext"
 include(":app")
+// The relay engine is plain Kotlin/JVM so it can be tested off-device (see ../core).
+include(":core")
+project(":core").projectDir = file("../core")

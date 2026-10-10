@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#0B0F19</color>
+    <color name="card">#141B2D</color>
+    <color name="card_stroke">#1F2940</color>
+    <color name="text_primary">#F1F5F9</color>
+    <color name="text_secondary">#94A3B8</color>
+    <color name="text_muted">#64748B</color>
+    <color name="accent">#38BDF8</color>
+    <color name="status_on">#22C55E</color>
+    <color name="status_wait">#F59E0B</color>
+    <color name="status_off">#64748B</color>
+    <color name="status_error">#EF4444</color>
+    <color name="button_start">#2563EB</color>
+    <color name="button_stop">#DC2626</color>
+    <color name="warning_bg">#2A1F0B</color>
+</resources>

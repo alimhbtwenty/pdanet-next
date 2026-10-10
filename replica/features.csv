@@ -1,0 +1,23 @@
+feature,area,priority,original,clone,notes
+USB link phone to PC without root,link,must,yes,no,ADB forward over the USB debugging channel
+All PC apps online (not only browsers),pc capture,must,yes,no,original uses a virtual adapter driver; clone uses a Wintun adapter + userspace router on the phone
+Traffic follows phone VPN when one is active,phone relay,must,yes,no,relay sockets are opened by the phone app so Android routes them through the VPN
+TCP relay,phone relay,must,yes,no,
+UDP relay (DNS games calls QUIC),phone relay,must,yes,no,raw IP packets framed over the ADB TCP stream; UDP NAT on the phone
+DNS resolved on the phone side,phone relay,must,partial,no,no DNS leak to the PC's other networks (NRPT)
+Ping the router and through it,phone relay,should,unknown,no,unprivileged ICMP socket on the phone
+One-click connect and disconnect on PC,pc ui,must,yes,no,
+Start/stop on phone with status,phone ui,must,yes,no,
+Auto-cleanup when cable is unplugged,pc ui,must,unknown,no,
+Restore PC network settings after crash,pc ui,must,unknown,no,
+Foreground service survives screen off,phone relay,should,yes,no,wake lock + foreground service
+Live data counters,ui,should,yes,no,
+Phone status visible on PC (VPN on/off network type),pc ui,should,no,no,clone-only improvement
+Pick device when several phones are attached,pc ui,should,unknown,no,
+Native TTL (hide tether usage),phone relay,should,yes,no,inherent in relay design; no PC TTL tweaks needed
+Start with Windows / auto-connect,pc ui,could,yes,no,
+Tray icon with menu,pc ui,could,yes,no,
+Free with no time limit,licensing,could,no,no,
+WiFi Direct mode,link,skip,yes,skip,user asked for USB; unreliable on Android 12+
+Bluetooth mode,link,skip,yes,skip,too slow to matter
+Mac client,platform,skip,yes,skip,Windows only for now

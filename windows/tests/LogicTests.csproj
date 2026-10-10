@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Runs the platform-neutral parts of the Windows app on any OS (see LogicTests.cs). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="LogicTests.cs" />
+    <Compile Include="..\src\Adb.cs" />
+    <Compile Include="..\src\PhoneStatus.cs" />
+    <Compile Include="..\src\RouterLinkProtocol.cs" />
+  </ItemGroup>
+</Project>
