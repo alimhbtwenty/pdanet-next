@@ -1,4 +1,4 @@
-# PdaNet-Next
+# PdaNext
 
 Turn your Android phone into a **router for your Windows PC over USB**. The PC gets a real network
 adapter, the phone is its gateway (`192.168.42.1`), and everything the PC sends (TCP, UDP, DNS,
@@ -10,10 +10,10 @@ No root, no license.
 ```
  Windows PC                                          Android phone = router
 ┌───────────────────────────────┐   USB cable     ┌─────────────────────────────────────┐
-│ every app, ping, DNS          │  (adb forward)  │ PdaNet-Next app                     │
+│ every app, ping, DNS          │  (adb forward)  │ PdaNext app                     │
 │            │                  │                 │                                     │
 │            ▼                  │   raw IP        │  router 192.168.42.1 (userspace NAT)│
-│ "PdaNet-Next" adapter         │   packets       │   TCP  -> phone sockets             │
+│ "PdaNext" adapter         │   packets       │   TCP  -> phone sockets             │
 │ (Wintun) 192.168.42.2/24      │ ──────────────► │   UDP  -> phone sockets             │
 │ gateway + DNS 192.168.42.1    │ ◄────────────── │   ping -> phone ICMP socket         │
 │ default route, metric 1       │                 │   DNS  -> phone resolver            │
@@ -39,19 +39,17 @@ carried; other protocols (GRE, raw ESP, traceroute's TTL-expired replies) are no
 
 ## Use it
 
-1. **Phone**: install `PdaNet-Next.apk` (the Windows app can also install it over USB).
+1. **Phone**: install `PdaNext.apk` (the Windows app can also install it over USB).
    Turn on **USB debugging** (Settings > About phone > tap *Build number* 7 times > Developer options).
-2. **PC**: extract `PdaNet-Next-Windows.zip` from the latest release and run `PdaNet-Next.exe`
+2. **PC**: extract `PdaNext-Windows.zip` from the latest release and run `PdaNext.exe`
    (administrator rights: it creates the network adapter).
 3. Plug in the cable, allow the USB debugging prompt on the phone, press **Connect**.
 
 The window shows the phone's uplink and VPN state, traffic, and live pings to the router and to
 the internet. Close it to keep running in the tray.
 
-| Mode | What it covers |
-| --- | --- |
-| **Whole PC** (default) | phone as router: all apps, TCP + UDP + ping, DNS through the phone |
-| **Browsers only** | apps that follow the Windows proxy setting; no adapter |
+No proxy is configured anywhere on the PC: to Windows and its apps this is an ordinary network
+adapter behind a router, and websites see the phone's (or its VPN's) IP address.
 
 ## Build and test
 
@@ -61,7 +59,7 @@ the internet. Close it to keep running in the tray.
 | Windows logic tests (any OS, .NET 8 SDK) | `dotnet run --project windows/tests` |
 | End-to-end: a Linux TUN "PC" behind the router: ping, DNS, TCP, UDP, 50 MB, 50 parallel | `gradle -p core installDist && sudo tests/e2e/run-router-e2e.sh` |
 | Android APK | `gradle -p android :app:assembleRelease` |
-| Windows exe | `dotnet build windows/PdaNetNext.csproj -c Release` |
+| Windows exe | `dotnet build windows/PdaNext.csproj -c Release` |
 
 CI (`.github/workflows/release.yml`) runs all of these, bundles `adb` and `wintun.dll` next to the
 exe, and publishes a release from `main`.
@@ -69,7 +67,7 @@ exe, and publishes a release from `main`.
 ## Layout
 
 ```
-core/       phone engine, plain Kotlin/JVM: router (router/), HTTP/SOCKS proxy, status endpoint
+core/       phone engine, plain Kotlin/JVM: the router (router/) and the status endpoint
 android/    Android app: foreground service + UI
 windows/    Windows app (C#, .NET Framework 4.8 built into Windows 10/11)
 tests/e2e/  Linux network-namespace test of the whole path

@@ -6,7 +6,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace PdaNetNext
+namespace PdaNext
 {
     /// <summary>Snapshot from the phone relay's GET /status.</summary>
     public sealed class PhoneStatus
@@ -64,7 +64,7 @@ namespace PdaNetNext
         public static PhoneStatus Parse(string json)
         {
             var f = FlatJson.Parse(json);
-            if (FlatJson.Str(f, "app") != "pdanet-next") throw new IOException("port is not a PdaNet-Next relay");
+            if (FlatJson.Str(f, "app") != "pdanext") throw new IOException("port is not a PdaNext relay");
             return new PhoneStatus
             {
                 Version = FlatJson.Str(f, "version"),

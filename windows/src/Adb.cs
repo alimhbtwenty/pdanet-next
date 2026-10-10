@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 
-namespace PdaNetNext
+namespace PdaNext
 {
     public sealed class AdbDevice
     {
@@ -28,7 +28,7 @@ namespace PdaNetNext
     /// <summary>Thin wrapper over the bundled adb.exe.</summary>
     public static class Adb
     {
-        public const string PhonePackage = "io.github.alimhbtwenty.pdanetnext";
+        public const string PhonePackage = "io.github.alimhbtwenty.pdanext";
 
         static string path;
 

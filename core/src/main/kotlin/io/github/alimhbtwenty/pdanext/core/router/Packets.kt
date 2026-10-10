@@ -1,4 +1,4 @@
-package io.github.alimhbtwenty.pdanetnext.core.router
+package io.github.alimhbtwenty.pdanext.core.router
 
 import java.net.Inet4Address
 import java.net.Inet6Address

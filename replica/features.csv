@@ -13,7 +13,6 @@ Restore PC network settings after crash,pc ui,must,unknown,no,
 Foreground service survives screen off,phone relay,should,yes,no,wake lock + foreground service
 Live data counters,ui,should,yes,no,
 Phone status visible on PC (VPN on/off network type),pc ui,should,no,no,clone-only improvement
-Proxy-only fallback mode without admin,pc ui,should,no,no,clone-only improvement
 Pick device when several phones are attached,pc ui,should,unknown,no,
 Native TTL (hide tether usage),phone relay,should,yes,no,inherent in relay design; no PC TTL tweaks needed
 Start with Windows / auto-connect,pc ui,could,yes,no,

@@ -1,4 +1,4 @@
-package io.github.alimhbtwenty.pdanetnext
+package io.github.alimhbtwenty.pdanext
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -16,7 +16,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import io.github.alimhbtwenty.pdanetnext.core.RelayServer
+import io.github.alimhbtwenty.pdanext.core.RelayServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -123,12 +123,12 @@ class RelayService : Service() {
     private fun acquireLocks() {
         // Keep the CPU and (if it is the uplink) WiFi awake while the screen is off.
         wakeLock = getSystemService(PowerManager::class.java)
-            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PdaNetNext:relay")
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PdaNext:relay")
             .apply { setReferenceCounted(false); acquire() }
         @Suppress("DEPRECATION")
         val mode = if (Build.VERSION.SDK_INT >= 29) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else WifiManager.WIFI_MODE_FULL_HIGH_PERF
         wifiLock = applicationContext.getSystemService(WifiManager::class.java)
-            ?.createWifiLock(mode, "PdaNetNext:relay")
+            ?.createWifiLock(mode, "PdaNext:relay")
             ?.apply { setReferenceCounted(false); acquire() }
     }
 
@@ -159,7 +159,7 @@ class RelayService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_tether)
-            .setContentTitle("PdaNet-Next is sharing internet")
+            .setContentTitle("PdaNext is sharing internet")
             .setContentText(text)
             .setContentIntent(open)
             .addAction(0, "Stop", stop)
@@ -169,10 +169,10 @@ class RelayService : Service() {
     }
 
     companion object {
-        private const val TAG = "PdaNetNext"
+        private const val TAG = "PdaNext"
         private const val CHANNEL_ID = "relay"
         private const val NOTIFICATION_ID = 1
-        const val ACTION_STOP = "io.github.alimhbtwenty.pdanetnext.STOP"
+        const val ACTION_STOP = "io.github.alimhbtwenty.pdanext.STOP"
 
         @Volatile private var current: RelayServer? = null
 

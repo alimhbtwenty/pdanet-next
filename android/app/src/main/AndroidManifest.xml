@@ -12,8 +12,8 @@
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
         android:roundIcon="@drawable/ic_launcher"
-        android:label="PdaNet-Next"
-        android:theme="@style/Theme.PdaNetNext"
+        android:label="PdaNext"
+        android:theme="@style/Theme.PdaNext"
         android:supportsRtl="true">
 
         <activity

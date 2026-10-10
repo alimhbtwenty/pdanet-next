@@ -3,7 +3,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Runtime.InteropServices;
 
-namespace PdaNetNext
+namespace PdaNext
 {
     /// <summary>
     /// Minimal binding to wintun.dll (https://www.wintun.net), the signed layer-3 adapter driver
@@ -37,7 +37,7 @@ namespace PdaNetNext
             if (stale != IntPtr.Zero) WintunCloseAdapter(stale);
 
             var guid = AdapterGuid;
-            adapter = WintunCreateAdapter(name, "PdaNet-Next", ref guid);
+            adapter = WintunCreateAdapter(name, "PdaNext", ref guid);
             if (adapter == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot create the virtual adapter");
             session = WintunStartSession(adapter, ringCapacity);
             if (session == IntPtr.Zero)

@@ -1,4 +1,4 @@
-package io.github.alimhbtwenty.pdanetnext.core
+package io.github.alimhbtwenty.pdanext.core
 
 import java.util.concurrent.atomic.AtomicLong
 

@@ -3,7 +3,7 @@ using System.IO;
 using System.Net.Sockets;
 using System.Threading;
 
-namespace PdaNetNext
+namespace PdaNext
 {
     /// <summary>
     /// "Phone as a router": a Wintun adapter whose packets go, unchanged, over the adb-forwarded
@@ -11,7 +11,7 @@ namespace PdaNetNext
     /// </summary>
     public sealed class RouterTunnel : IDisposable
     {
-        public const string AdapterName = "PdaNet-Next";
+        public const string AdapterName = "PdaNext";
 
         readonly Action<string> log;
         TcpClient client;

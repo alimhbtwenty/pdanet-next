@@ -6,7 +6,7 @@ plugins {
 }
 
 application {
-    mainClass.set("io.github.alimhbtwenty.pdanetnext.core.MainKt")
+    mainClass.set("io.github.alimhbtwenty.pdanext.core.MainKt")
 }
 
 // Bytecode level 17 so the Android app (Java 17) can consume it; any JDK >= 17 can build it.

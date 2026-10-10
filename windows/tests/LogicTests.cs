@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
-using PdaNetNext;
+using PdaNext;
 
 // Tests for the parts of the Windows app that do not need Windows.
 //   dotnet run --project windows/tests
@@ -54,7 +54,7 @@ Test("adb devices -l: empty list", () => Equal(0, Adb.ParseDevices("List of devi
 Test("phone status json from the relay", () =>
 {
     var s = PhoneStatus.Parse(
-        "{\"app\":\"pdanet-next\",\"version\":\"3.0.0\",\"bytesUp\":5004433,\"bytesDown\":55029029,\"activeTcp\":3," +
+        "{\"app\":\"pdanext\",\"version\":\"3.0.0\",\"bytesUp\":5004433,\"bytesDown\":55029029,\"activeTcp\":3," +
         "\"activeUdp\":2,\"totalConnections\":58,\"failedConnections\":0,\"uplinkConnected\":true,\"uplink\":\"mobile\"," +
         "\"vpnActive\":true,\"device\":\"samsung SM-A525F \\\"test\\\"\"}");
     Equal(55029029L, s.BytesDown);

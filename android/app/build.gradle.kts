@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "io.github.alimhbtwenty.pdanetnext"
+    namespace = "io.github.alimhbtwenty.pdanext"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "io.github.alimhbtwenty.pdanetnext"
+        applicationId = "io.github.alimhbtwenty.pdanext"
         minSdk = 24
         targetSdk = 35
         versionCode = 3

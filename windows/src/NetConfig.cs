@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
 
-namespace PdaNetNext
+namespace PdaNext
 {
     /// <summary>
     /// Windows network settings for the router adapter: the address the phone assigned, the phone as
@@ -10,7 +10,7 @@ namespace PdaNetNext
     /// </summary>
     public static class NetConfig
     {
-        const string NrptComment = "PdaNet-Next";
+        const string NrptComment = "PdaNext";
 
         public static void Apply(string adapter, RouterHello hello, Action<string> log)
         {

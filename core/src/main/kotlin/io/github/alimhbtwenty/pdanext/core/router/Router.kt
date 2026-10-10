@@ -1,6 +1,6 @@
-package io.github.alimhbtwenty.pdanetnext.core.router
+package io.github.alimhbtwenty.pdanext.core.router
 
-import io.github.alimhbtwenty.pdanetnext.core.RelayStats
+import io.github.alimhbtwenty.pdanext.core.RelayStats
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.util.concurrent.ConcurrentHashMap
@@ -121,7 +121,7 @@ class Router(
         pendingPings[seq] = latch
         val (src, dst) = if (v6) config.gateway6 to config.client6 else config.gateway4 to config.client4
         val start = System.nanoTime()
-        send(PacketBuilder.icmpEcho(src, dst, false, PING_ID, seq, "pdanet-next".toByteArray()))
+        send(PacketBuilder.icmpEcho(src, dst, false, PING_ID, seq, "pdanext".toByteArray()))
         val ok = latch.await(timeoutMs, TimeUnit.MILLISECONDS)
         pendingPings.remove(seq)
         return if (ok) (System.nanoTime() - start) / 1_000_000 else null
@@ -268,6 +268,6 @@ class Router(
             return true
         }
 
-        internal fun daemon(prefix: String) = io.github.alimhbtwenty.pdanetnext.core.RelayServer.daemonThreads(prefix)
+        internal fun daemon(prefix: String) = io.github.alimhbtwenty.pdanext.core.RelayServer.daemonThreads(prefix)
     }
 }

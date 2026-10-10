@@ -1,4 +1,4 @@
-package io.github.alimhbtwenty.pdanetnext.core.router
+package io.github.alimhbtwenty.pdanext.core.router
 
 import java.io.IOException
 import java.net.Inet6Address

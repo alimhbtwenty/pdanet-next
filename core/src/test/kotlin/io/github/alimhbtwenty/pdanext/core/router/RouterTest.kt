@@ -1,6 +1,6 @@
-package io.github.alimhbtwenty.pdanetnext.core.router
+package io.github.alimhbtwenty.pdanext.core.router
 
-import io.github.alimhbtwenty.pdanetnext.core.RelayStats
+import io.github.alimhbtwenty.pdanext.core.RelayStats
 import java.net.InetAddress
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit

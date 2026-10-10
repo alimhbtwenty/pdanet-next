@@ -1,4 +1,4 @@
-package io.github.alimhbtwenty.pdanetnext
+package io.github.alimhbtwenty.pdanext
 
 import android.net.DnsResolver
 import android.os.Build
@@ -7,8 +7,8 @@ import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
 import android.system.StructTimeval
-import io.github.alimhbtwenty.pdanetnext.core.router.MiniDns
-import io.github.alimhbtwenty.pdanetnext.core.router.RouterPlatform
+import io.github.alimhbtwenty.pdanext.core.router.MiniDns
+import io.github.alimhbtwenty.pdanext.core.router.RouterPlatform
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.util.concurrent.CountDownLatch

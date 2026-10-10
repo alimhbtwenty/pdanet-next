@@ -6,7 +6,7 @@ using System.Linq;
 using System.Net.NetworkInformation;
 using System.Windows.Forms;
 
-namespace PdaNetNext
+namespace PdaNext
 {
     static class Theme
     {
@@ -92,7 +92,6 @@ namespace PdaNetNext
 
         Dot statusDot;
         Label lblStatus, lblDetail, lblPhone, lblUplink, lblVpn, lblDown, lblUp, lblTotal, lblRouterPing, lblNetPing;
-        RadioButton rbWholePc, rbBrowsers;
         Button btnConnect;
         ComboBox cbDevice;
         CheckBox chkAuto, chkStartup, chkDns;
@@ -111,7 +110,7 @@ namespace PdaNetNext
             this.bridge = bridge;
             this.startHidden = startHidden;
 
-            Text = "PdaNet-Next";
+            Text = "PdaNext";
             Icon = Program.AppIcon;
             BackColor = Theme.Bg;
             ForeColor = Theme.Text;
@@ -119,12 +118,12 @@ namespace PdaNetNext
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(480, 850);
+            ClientSize = new Size(480, 720);
             StartPosition = FormStartPosition.CenterScreen;
 
             BuildUi();
 
-            tray = new NotifyIcon { Icon = Program.AppIcon, Text = "PdaNet-Next", Visible = true };
+            tray = new NotifyIcon { Icon = Program.AppIcon, Text = "PdaNext", Visible = true };
             var menu = new ContextMenuStrip();
             trayStatus = new ToolStripMenuItem("Not connected") { Enabled = false };
             trayConnect = new ToolStripMenuItem("Connect", null, (s, e) => ToggleConnection());
@@ -158,7 +157,7 @@ namespace PdaNetNext
         {
             int x = 18, w = ClientSize.Width - 36, y = 16;
 
-            var title = MakeLabel("PdaNet-Next", Theme.UI(20f, FontStyle.Bold), Theme.Text, x, y, w);
+            var title = MakeLabel("PdaNext", Theme.UI(20f, FontStyle.Bold), Theme.Text, x, y, w);
             Controls.Add(title);
             y += 40;
             Controls.Add(MakeLabel("Your phone's internet on this PC, over USB", Theme.UI(10f), Theme.Secondary, x, y, w));
@@ -198,17 +197,6 @@ namespace PdaNetNext
             lblVpn = MakeLabel("—", Theme.UI(10.5f, FontStyle.Bold), Theme.Text, 18 + col, 92, col);
             phone.Controls.Add(lblVpn);
             y += 140;
-
-            // Mode card
-            var mode = AddCard(x, y, w, 118);
-            mode.Controls.Add(MakeCaption("WHAT TO SHARE", 18, 14));
-            rbWholePc = MakeRadio("Whole PC: the phone becomes your router (recommended)", 18, 36, w - 36);
-            rbBrowsers = MakeRadio("Browsers only: uses the Windows proxy setting", 18, 66, w - 36);
-            mode.Controls.Add(rbWholePc);
-            mode.Controls.Add(rbBrowsers);
-            (AppSettings.Mode == BridgeMode.WholePc ? rbWholePc : rbBrowsers).Checked = true;
-            rbWholePc.CheckedChanged += (s, e) => OnModeChanged();
-            y += 130;
 
             btnConnect = new Button
             {
@@ -311,16 +299,6 @@ namespace PdaNetNext
         static Label MakeCaption(string text, int x, int y) =>
             MakeLabel(text, Theme.UI(7.5f, FontStyle.Bold), Theme.Muted, x, y, 200);
 
-        static RadioButton MakeRadio(string text, int x, int y, int w) => new RadioButton
-        {
-            Text = text,
-            Location = new Point(x, y),
-            Size = new Size(w, 26),
-            ForeColor = Theme.Text,
-            BackColor = Theme.Card,
-            Font = Theme.UI(9.5f),
-        };
-
         static CheckBox MakeCheck(string text, int x, int y, int w) => new CheckBox
         {
             Text = text,
@@ -333,14 +311,6 @@ namespace PdaNetNext
 
         string SelectedSerial => cbDevice.SelectedIndex >= 0 && cbDevice.SelectedIndex < devices.Count ? devices[cbDevice.SelectedIndex].Serial : null;
 
-        BridgeMode SelectedMode => rbWholePc.Checked ? BridgeMode.WholePc : BridgeMode.BrowsersOnly;
-
-        void OnModeChanged()
-        {
-            AppSettings.Mode = SelectedMode;
-            if (bridge.WantsConnection) Connect();
-        }
-
         void ToggleConnection()
         {
             if (bridge.WantsConnection) bridge.RequestDisconnect();
@@ -348,7 +318,7 @@ namespace PdaNetNext
             RenderButton();
         }
 
-        void Connect() => bridge.RequestConnect(SelectedMode, SelectedSerial);
+        void Connect() => bridge.RequestConnect(SelectedSerial);
 
         void RenderButton()
         {
@@ -375,7 +345,7 @@ namespace PdaNetNext
             lblDetail.Text = message;
             statusDot.DotColor = color;
             trayStatus.Text = title;
-            tray.Text = ("PdaNet-Next: " + title).Substring(0, Math.Min(63, ("PdaNet-Next: " + title).Length));
+            tray.Text = ("PdaNext: " + title).Substring(0, Math.Min(63, ("PdaNext: " + title).Length));
             if (state != BridgeState.Connected)
             {
                 lblDown.Text = lblUp.Text = "0 KB/s";
@@ -384,7 +354,7 @@ namespace PdaNetNext
             RenderButton();
             if (changed && (state == BridgeState.Connected || state == BridgeState.Error || (state == BridgeState.Waiting && message.StartsWith("Phone unplugged"))))
             {
-                tray.ShowBalloonTip(3000, "PdaNet-Next: " + title, message,
+                tray.ShowBalloonTip(3000, "PdaNext: " + title, message,
                     state == BridgeState.Error ? ToolTipIcon.Error : ToolTipIcon.Info);
             }
         }
@@ -463,7 +433,7 @@ namespace PdaNetNext
         {
             txtLog.Visible = !txtLog.Visible;
             lnkLog.Text = txtLog.Visible ? "Hide log" : "Show log";
-            ClientSize = new Size(ClientSize.Width, txtLog.Visible ? 850 + 160 : 850);
+            ClientSize = new Size(ClientSize.Width, txtLog.Visible ? 720 + 160 : 720);
         }
 
         void AppendLog(string line)
@@ -495,7 +465,7 @@ namespace PdaNetNext
                 if (!trayHintShown)
                 {
                     trayHintShown = true;
-                    tray.ShowBalloonTip(3000, "PdaNet-Next is still running", "Right-click the tray icon to disconnect or exit.", ToolTipIcon.Info);
+                    tray.ShowBalloonTip(3000, "PdaNext is still running", "Right-click the tray icon to disconnect or exit.", ToolTipIcon.Info);
                 }
                 return;
             }

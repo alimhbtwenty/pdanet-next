@@ -3,7 +3,7 @@ using System.IO;
 using System.Net;
 using System.Text;
 
-namespace PdaNetNext
+namespace PdaNext
 {
     /// <summary>Addressing the phone hands out for the USB network (see core/.../router/RouterLink.kt).</summary>
     public sealed class RouterHello

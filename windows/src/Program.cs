@@ -4,7 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace PdaNetNext
+namespace PdaNext
 {
     static class Program
     {
@@ -13,12 +13,12 @@ namespace PdaNetNext
         [STAThread]
         static void Main(string[] args)
         {
-            using (var mutex = new Mutex(true, @"Global\PdaNetNext.SingleInstance", out bool first))
+            using (var mutex = new Mutex(true, @"Global\PdaNext.SingleInstance", out bool first))
             {
                 if (!first)
                 {
-                    MessageBox.Show("PdaNet-Next is already running. Look for its icon next to the clock.",
-                        "PdaNet-Next", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show("PdaNext is already running. Look for its icon next to the clock.",
+                        "PdaNext", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
 

@@ -1,6 +1,6 @@
-package io.github.alimhbtwenty.pdanetnext.core.router
+package io.github.alimhbtwenty.pdanext.core.router
 
-import io.github.alimhbtwenty.pdanetnext.core.RelayServer
+import io.github.alimhbtwenty.pdanext.core.RelayServer
 import java.io.BufferedOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream

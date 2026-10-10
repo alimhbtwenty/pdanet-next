@@ -41,8 +41,8 @@ Plug phone in → tap "Connect" → the whole PC is online through the phone's c
   forwards packets at the kernel level and bypasses the phone VPN (source 6).
   A relay app does not.
 
-That last point is the main design rule for PdaNet-Next: **relay in user space
-on the phone, capture everything with a virtual adapter on the PC.** PdaNet-Next goes one step
+That last point is the main design rule for PdaNext: **relay in user space
+on the phone, capture everything with a virtual adapter on the PC.** PdaNext goes one step
 further and makes the phone a real router for the PC: raw IP packets cross the USB link and a
 userspace NAT on the phone re-creates each flow, so ping to the router and through it works too.
 

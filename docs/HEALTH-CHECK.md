@@ -8,7 +8,7 @@ use, **medium** = breaks in some cases, **low** = cleanup.
 
 1. **Wrong ADB direction — the connection never works.** The phone app listens
    on the phone's `127.0.0.1:8080`, and Windows points its proxy at the PC's
-   `127.0.0.1:8080`. The scripts and `PdaNetNext.cs` run `adb reverse tcp:8080
+   `127.0.0.1:8080`. The scripts and `PdaNext.cs` run `adb reverse tcp:8080
    tcp:8080`, which does the opposite: it makes the *phone's* port 8080 connect
    to the *PC*. Nothing listens on the PC's port 8080, so every request fails
    (and the reverse rule collides with the app's own listener on the phone).
@@ -60,7 +60,7 @@ use, **medium** = breaks in some cases, **low** = cleanup.
 15. README and ARCHITECTURE describe things that do not exist: `dashboard/`,
     `setup-adb.ps1`, a VpnService, DoH resolver, JA3 handling, QR pairing.
 16. `wintun.dll` is shipped but nothing uses it.
-17. Release notes name a zip (`pdanet-next-windows11-scripts.zip`) that the
+17. Release notes name a zip (`pdanext-windows11-scripts.zip`) that the
     workflow does not produce.
 
 ## What was fine
@@ -73,10 +73,10 @@ use, **medium** = breaks in some cases, **low** = cleanup.
 ## Fix plan (implemented on this branch)
 
 - New phone engine (`core/`, pure Kotlin/JVM, unit-tested off-device): a userspace NAT router
-  that receives the PC's raw IP packets over the USB link (TCP, UDP, ping, DNS), plus an HTTP/SOCKS
-  proxy on the same port for the proxy-only mode. No idle timeout on connections.
+  that receives the PC's raw IP packets over the USB link (TCP, UDP, ping, DNS). No idle timeout
+  on connections. The proxy approach is gone: nothing on the PC is configured as a proxy.
 - PC: "phone as router" mode with a Wintun adapter (gateway and DNS = the phone, default route,
-  NRPT rule against DNS leaks), plus a proxy-only fallback. `adb forward`, per-device serial,
-  background watchdog, crash-safe restore of DNS and proxy settings, no TTL changes.
+  NRPT rule against DNS leaks). `adb forward`, per-device serial, background watchdog,
+  crash-safe cleanup of the DNS rule, no TTL changes.
 - Phone VPN: every flow is re-created by the phone app's own sockets, so Android sends it through
   any active VPN. The app shows whether a VPN is active.

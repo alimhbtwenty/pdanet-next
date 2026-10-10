@@ -1,4 +1,4 @@
-package io.github.alimhbtwenty.pdanetnext
+package io.github.alimhbtwenty.pdanext
 
 import android.Manifest
 import android.content.Intent
@@ -118,7 +118,6 @@ class MainActivity : AppCompatActivity() {
             state.error != null -> Triple("Error", state.error, R.color.status_error)
             !state.running -> Triple("Off", "Tap Start, then press Connect in the PC app.", R.color.status_off)
             state.routerMode -> Triple("PC connected", "This phone is the PC's router (192.168.42.1). All its traffic goes out from here.", R.color.status_on)
-            state.activeTcp > 0 -> Triple("PC connected", "Your PC is online through this phone (proxy mode).", R.color.status_on)
             else -> Triple("Ready", "Waiting for the PC app over USB.", R.color.status_wait)
         }
         tvStatus.text = title

@@ -2,22 +2,14 @@ using System;
 using System.Diagnostics;
 using Microsoft.Win32;
 
-namespace PdaNetNext
+namespace PdaNext
 {
-    public enum BridgeMode { WholePc = 0, BrowsersOnly = 1 }
-
-    /// <summary>User preferences, stored under HKCU\Software\PdaNet-Next.</summary>
+    /// <summary>User preferences, stored under HKCU\Software\PdaNext.</summary>
     public static class AppSettings
     {
-        public const string RegistryRoot = @"Software\PdaNet-Next";
+        public const string RegistryRoot = @"Software\PdaNext";
         public const int RelayPort = 28080;
-        const string TaskName = "PdaNet-Next";
-
-        public static BridgeMode Mode
-        {
-            get => (BridgeMode)GetInt("Mode", (int)BridgeMode.WholePc);
-            set => SetInt("Mode", (int)value);
-        }
+        const string TaskName = "PdaNext";
 
         public static bool AutoConnect
         {

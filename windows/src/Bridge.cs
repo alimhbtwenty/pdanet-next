@@ -6,7 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 
-namespace PdaNetNext
+namespace PdaNext
 {
     public enum BridgeState { Disconnected, Waiting, Connecting, Connected, Error }
 
@@ -22,8 +22,7 @@ namespace PdaNetNext
         public event Action<List<AdbDevice>> DevicesChanged;
 
         public BridgeState State { get; private set; } = BridgeState.Disconnected;
-        public BridgeMode ActiveMode { get; private set; }
-        /// <summary>The phone's address on the USB network while connected in Whole PC mode.</summary>
+        /// <summary>The phone's address on the USB network while connected.</summary>
         public string RouterAddress => tunnel?.Hello?.Gateway4?.ToString();
         public AdbDevice ActiveDevice { get; private set; }
 
@@ -32,7 +31,6 @@ namespace PdaNetNext
         readonly Thread worker;
         volatile bool disposed;
         volatile bool wantConnected;
-        volatile BridgeMode wantMode;
         volatile string wantSerial;
         volatile bool restartRequested;
 
@@ -44,8 +42,8 @@ namespace PdaNetNext
         DateTime retryAfter = DateTime.MinValue;
 
         static string BinDir => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "bin");
-        static string PhoneApk => Path.Combine(BinDir, "PdaNet-Next.apk");
-        static string DataDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PdaNet-Next");
+        static string PhoneApk => Path.Combine(BinDir, "PdaNext.apk");
+        static string DataDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PdaNext");
 
         public Bridge()
         {
@@ -56,18 +54,16 @@ namespace PdaNetNext
         {
             if (worker.IsAlive) return;
             wantConnected = connectNow;
-            wantMode = AppSettings.Mode;
             worker.Start();
         }
 
-        public void RequestConnect(BridgeMode mode, string serial)
+        public void RequestConnect(string serial)
         {
-            wantMode = mode;
             wantSerial = serial;
             wantConnected = true;
             retryAfter = DateTime.MinValue;
             bool otherPhone = serial != null && ActiveDevice != null && serial != ActiveDevice.Serial;
-            if (connected && (mode != ActiveMode || otherPhone)) restartRequested = true;
+            if (connected && otherPhone) restartRequested = true;
             wake.Set();
         }
 
@@ -127,7 +123,7 @@ namespace PdaNetNext
                 if (restartRequested)
                 {
                     restartRequested = false;
-                    Teardown("switching mode", BridgeState.Connecting);
+                    Teardown("switching phone", BridgeState.Connecting);
                     return;
                 }
                 CheckHealth(devices);
@@ -168,30 +164,19 @@ namespace PdaNetNext
                 status = WaitForStatus(TimeSpan.FromSeconds(12));
                 if (status == null)
                 {
-                    SetState(BridgeState.Waiting, "Open PdaNet-Next on the phone and tap Start (unlock the phone first)");
+                    SetState(BridgeState.Waiting, "Open PdaNext on the phone and tap Start (unlock the phone first)");
                     return;
                 }
             }
 
-            var mode = wantMode;
-            if (mode == BridgeMode.WholePc)
-            {
-                if (!StartTunnel()) return;
-            }
-            else
-            {
-                SystemProxy.Apply(port);
-            }
+            if (!StartTunnel()) return;
 
-            AppSettings.ActiveSession = mode.ToString();
-            ActiveMode = mode;
+            AppSettings.ActiveSession = "router";
             ActiveDevice = device;
             connected = true;
             statusFailures = 0;
             StatusUpdated?.Invoke(status);
-            SetState(BridgeState.Connected, mode == BridgeMode.WholePc
-                ? "Whole PC is online through " + device.DisplayName + " (router " + tunnel.Hello.Gateway4 + ")"
-                : "Browsers are online through " + device.DisplayName);
+            SetState(BridgeState.Connected, "The whole PC is online through " + device.DisplayName + " (router " + tunnel.Hello.Gateway4 + ")");
         }
 
         bool EnsurePhoneApp(AdbDevice device)
@@ -201,7 +186,7 @@ namespace PdaNetNext
             {
                 if (!File.Exists(PhoneApk))
                 {
-                    SetState(BridgeState.Error, "Install the PdaNet-Next app on the phone first");
+                    SetState(BridgeState.Error, "Install the PdaNext app on the phone first");
                     return false;
                 }
                 SetState(BridgeState.Connecting, "Installing the phone app…");
@@ -272,7 +257,7 @@ namespace PdaNetNext
             if (statusFailures >= 4)
             {
                 Teardown("phone app stopped answering", BridgeState.Waiting);
-                SetState(BridgeState.Waiting, "The phone app stopped. Open PdaNet-Next on the phone and tap Start.");
+                SetState(BridgeState.Waiting, "The phone app stopped. Open PdaNext on the phone and tap Start.");
             }
         }
 
@@ -285,7 +270,6 @@ namespace PdaNetNext
                 try { tunnel.Dispose(); } catch (Exception e) { Emit("adapter cleanup: " + e.Message); }
                 tunnel = null;
             }
-            try { SystemProxy.Restore(); } catch (Exception e) { Emit("proxy restore: " + e.Message); }
             if (ActiveDevice != null) Adb.Run(ActiveDevice.Serial, "forward --remove tcp:" + port, 5000);
             AppSettings.ActiveSession = null;
             if (wasConnected) Emit("Disconnected (" + reason + ")");
@@ -295,11 +279,10 @@ namespace PdaNetNext
         void RepairAfterCrash()
         {
             string stale = AppSettings.ActiveSession;
-            if (stale == null && !SystemProxy.HasBackup) return;
+            if (stale == null) return;
             Emit("Previous session did not close cleanly; restoring network settings");
-            // The adapter itself vanished with the old process; the DNS rule and proxy did not.
+            // The adapter itself vanished with the old process; the DNS rule did not.
             try { NetConfig.Remove(Emit); } catch (Exception e) { Emit("DNS rule cleanup: " + e.Message); }
-            try { SystemProxy.Restore(); } catch (Exception e) { Emit("proxy restore: " + e.Message); }
             AppSettings.ActiveSession = null;
         }
 

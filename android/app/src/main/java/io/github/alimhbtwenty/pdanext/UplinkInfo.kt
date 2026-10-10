@@ -1,4 +1,4 @@
-package io.github.alimhbtwenty.pdanetnext
+package io.github.alimhbtwenty.pdanext
 
 import android.content.Context
 import android.net.ConnectivityManager
