@@ -34,12 +34,13 @@ jobs:
           chmod +x gradlew
           ./gradlew :app:assembleDebug --stacktrace
 
-      - name: Package Windows 11 Companion Scripts
+      - name: Package Windows 11 Companion
         run: |
-          mkdir -p release-bundle/windows
-          cp -r windows/* release-bundle/windows/
+          mkdir -p release-bundle/bin
+          cp windows/PdaNet-Next.exe release-bundle/
+          cp -r windows/bin/* release-bundle/bin/
           cp README.md release-bundle/
-          cd release-bundle && zip -r ../pdanet-next-windows11-scripts.zip . && cd ..
+          cd release-bundle && zip -r ../PdaNet-Next-Windows-Portable.zip . && cd ..
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -50,8 +51,8 @@ jobs:
       - name: Upload Windows 11 Bundle Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pdanet-next-windows11-bundle
-          path: pdanet-next-windows11-scripts.zip
+          name: pdanet-next-windows-portable
+          path: PdaNet-Next-Windows-Portable.zip
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -62,7 +63,8 @@ jobs:
           make_latest: true
           files: |
             android/app/build/outputs/apk/debug/*.apk
-            pdanet-next-windows11-scripts.zip
+            PdaNet-Next-Windows-Portable.zip
+            windows/PdaNet-Next.exe
           body: |
             ## PdaNet-Next v2.0 (Pure USB Carrier-Bypass Tethering)
             
