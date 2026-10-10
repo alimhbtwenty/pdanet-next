@@ -10,12 +10,14 @@ import android.content.Intent
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 
 class ProxyService : Service() {
 
     private val binder = LocalBinder()
     val proxyServer = ProxyServer(8080)
+    private var wakeLock: PowerManager.WakeLock? = null
 
     inner class LocalBinder : Binder() {
         fun getService(): ProxyService = this@ProxyService
@@ -26,6 +28,18 @@ class ProxyService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+
+        // Acquire WakeLock to prevent Android Doze mode from freezing USB tethering
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "PdaNetNext::UsbTetherWakeLock"
+            ).apply {
+                setReferenceCounted(false)
+                acquire(12 * 60 * 60 * 1000L) // 12 hours max safety
+            }
+        } catch (_: Exception) {}
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -40,6 +54,12 @@ class ProxyService : Service() {
     }
 
     override fun onDestroy() {
+        try {
+            wakeLock?.let {
+                if (it.isHeld) it.release()
+            }
+        } catch (_: Exception) {}
+
         proxyServer.stop()
         super.onDestroy()
     }

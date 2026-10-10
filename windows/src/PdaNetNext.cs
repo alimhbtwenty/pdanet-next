@@ -2,6 +2,9 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Security.Principal;
+using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
@@ -9,12 +12,53 @@ namespace PdaNetNext
 {
     static class Program
     {
+        [DllImport("wininet.dll")]
+        public static extern bool InternetSetOption(IntPtr hInternet, int dwOption, IntPtr lpBuffer, int dwBufferLength);
+        public const int INTERNET_OPTION_SETTINGS_CHANGED = 39;
+        public const int INTERNET_OPTION_REFRESH = 37;
+
+        public static void RefreshSystemProxy()
+        {
+            InternetSetOption(IntPtr.Zero, INTERNET_OPTION_SETTINGS_CHANGED, IntPtr.Zero, 0);
+            InternetSetOption(IntPtr.Zero, INTERNET_OPTION_REFRESH, IntPtr.Zero, 0);
+        }
+
         [STAThread]
         static void Main()
         {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new PdaNetTrayContext());
+            // Self-elevation check
+            WindowsPrincipal principal = new WindowsPrincipal(WindowsIdentity.GetCurrent());
+            if (!principal.IsInRole(WindowsBuiltInRole.Administrator))
+            {
+                ProcessStartInfo startInfo = new ProcessStartInfo
+                {
+                    UseShellExecute = true,
+                    WorkingDirectory = Environment.CurrentDirectory,
+                    FileName = Application.ExecutablePath,
+                    Verb = "runas"
+                };
+                try
+                {
+                    Process.Start(startInfo);
+                }
+                catch { }
+                return;
+            }
+
+            // Single-instance mutex
+            bool createdNew;
+            using (Mutex mutex = new Mutex(true, "PdaNetNext_SingleInstance_Mutex", out createdNew))
+            {
+                if (!createdNew)
+                {
+                    MessageBox.Show("PdaNet-Next is already running in your System Tray (next to the clock).", "PdaNet-Next", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.Run(new PdaNetTrayContext());
+            }
         }
     }
 
@@ -26,6 +70,7 @@ namespace PdaNetNext
         private ToolStripMenuItem connectItem;
         private ToolStripMenuItem disconnectItem;
         private ToolStripMenuItem exitItem;
+        private System.Windows.Forms.Timer watchdogTimer;
         private bool isConnected = false;
         private string appDir;
         private string adbPath;
@@ -36,7 +81,7 @@ namespace PdaNetNext
             adbPath = Path.Combine(appDir, "bin", "adb.exe");
             if (!File.Exists(adbPath))
             {
-                adbPath = "adb.exe"; // fallback to PATH
+                adbPath = "adb.exe";
             }
 
             contextMenu = new ContextMenuStrip();
@@ -49,7 +94,7 @@ namespace PdaNetNext
             connectItem = new ToolStripMenuItem("Connect (USB)", null, (s, e) => Connect());
             contextMenu.Items.Add(connectItem);
 
-            disconnectItem = new ToolStripMenuItem("Disconnect", null, (s, e) => Disconnect()) { Enabled = false };
+            disconnectItem = new ToolStripMenuItem("Disconnect", null, (s, e) => Disconnect(true)) { Enabled = false };
             contextMenu.Items.Add(disconnectItem);
 
             contextMenu.Items.Add(new ToolStripSeparator());
@@ -66,11 +111,30 @@ namespace PdaNetNext
             };
 
             trayIcon.DoubleClick += (s, e) => {
-                if (isConnected) Disconnect(); else Connect();
+                if (isConnected) Disconnect(true); else Connect();
             };
 
-            // Auto-connect attempt on start
+            // Watchdog: Monitors USB cable state every 4s to auto-clean proxy on sudden unplug
+            watchdogTimer = new System.Windows.Forms.Timer();
+            watchdogTimer.Interval = 4000;
+            watchdogTimer.Tick += (s, e) => CheckCableStatus();
+            watchdogTimer.Start();
+
+            // Initial connection attempt
             Connect();
+        }
+
+        private void CheckCableStatus()
+        {
+            if (!isConnected) return;
+
+            string devices = RunCmdOutput(adbPath, "devices");
+            if (!devices.Contains("\tdevice"))
+            {
+                // Cable was pulled! Disconnect cleanly to prevent broken internet
+                Disconnect(false);
+                trayIcon.ShowBalloonTip(3000, "PdaNet-Next Disconnected", "USB cable was unplugged. Proxy automatically disabled to restore normal internet.", ToolTipIcon.Warning);
+            }
         }
 
         private void RunCmd(string cmd, string args)
@@ -105,7 +169,7 @@ namespace PdaNetNext
                 using (Process p = Process.Start(psi))
                 {
                     string res = p.StandardOutput.ReadToEnd();
-                    p.WaitForExit(3000);
+                    if (p != null) p.WaitForExit(3000);
                     return res;
                 }
             }
@@ -144,6 +208,8 @@ namespace PdaNetNext
                     }
                 }
 
+                Program.RefreshSystemProxy();
+
                 isConnected = true;
                 statusItem.Text = "PdaNet-Next: Connected (Unlimited)";
                 connectItem.Enabled = false;
@@ -157,7 +223,7 @@ namespace PdaNetNext
             }
         }
 
-        private void Disconnect()
+        private void Disconnect(bool showBalloon = true)
         {
             try
             {
@@ -174,7 +240,9 @@ namespace PdaNetNext
                     }
                 }
 
-                // Restore default TTL
+                Program.RefreshSystemProxy();
+
+                // Restore default TTL (128)
                 RunCmd("netsh", "int ipv4 set glob defaultcurhoplimit=128");
                 RunCmd("netsh", "int ipv6 set glob defaultcurhoplimit=128");
 
@@ -186,14 +254,19 @@ namespace PdaNetNext
                 connectItem.Enabled = true;
                 disconnectItem.Enabled = false;
                 trayIcon.Icon = SystemIcons.Shield;
-                trayIcon.ShowBalloonTip(2000, "PdaNet-Next", "Disconnected. Network settings restored.", ToolTipIcon.Info);
+
+                if (showBalloon)
+                {
+                    trayIcon.ShowBalloonTip(2000, "PdaNet-Next", "Disconnected. Network settings restored.", ToolTipIcon.Info);
+                }
             }
             catch { }
         }
 
         private void Exit()
         {
-            if (isConnected) Disconnect();
+            watchdogTimer.Stop();
+            if (isConnected) Disconnect(false);
             trayIcon.Visible = false;
             Application.Exit();
         }
