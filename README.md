@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.png" width="128" alt="PdaNext logo"></p>
+
 # PdaNext
 
 Turn your Android phone into a **router for your Windows PC over USB**. The PC gets a real network
@@ -41,8 +43,9 @@ carried; other protocols (GRE, raw ESP, traceroute's TTL-expired replies) are no
 
 1. **Phone**: install `PdaNext.apk` (the Windows app can also install it over USB).
    Turn on **USB debugging** (Settings > About phone > tap *Build number* 7 times > Developer options).
-2. **PC**: extract `PdaNext-Windows.zip` from the latest release and run `PdaNext.exe`
-   (administrator rights: it creates the network adapter).
+2. **PC**: run `PdaNext-Setup.msi` from the latest release (Start menu and desktop shortcuts,
+   uninstall from *Settings > Apps*). A portable `PdaNext-Windows.zip` is there too.
+   The app asks for administrator rights: it creates the network adapter.
 3. Plug in the cable, allow the USB debugging prompt on the phone, press **Connect**.
 
 The window shows the phone's uplink and VPN state, traffic, and live pings to the router and to
@@ -60,16 +63,19 @@ adapter behind a router, and websites see the phone's (or its VPN's) IP address.
 | End-to-end: a Linux TUN "PC" behind the router: ping, DNS, TCP, UDP, 50 MB, 50 parallel | `gradle -p core installDist && sudo tests/e2e/run-router-e2e.sh` |
 | Android APK | `gradle -p android :app:assembleRelease` |
 | Windows exe | `dotnet build windows/PdaNext.csproj -c Release` |
+| Windows installer (on Windows, WiX 5) | `wix build windows/installer/PdaNext.wxs -arch x64 -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext -d Version=3.0.0 -d SourceDir=<release folder>` |
+| Logo and icons | `python3 tools/logo/draw_logo.py` |
 
 CI (`.github/workflows/release.yml`) runs all of these, bundles `adb` and `wintun.dll` next to the
-exe, and publishes a release from `main`.
+exe, builds the MSI and checks that it installs and uninstalls cleanly, and publishes a release from `main`.
 
 ## Layout
 
 ```
 core/       phone engine, plain Kotlin/JVM: the router (router/) and the status endpoint
 android/    Android app: foreground service + UI
-windows/    Windows app (C#, .NET Framework 4.8 built into Windows 10/11)
+windows/    Windows app (C#, .NET Framework 4.8 built into Windows 10/11) and its MSI (installer/)
+tools/logo/ the PdaNext logo, drawn in code; regenerates every icon
 tests/e2e/  Linux network-namespace test of the whole path
 replica/    clean-room recon of PdaNet+
 docs/       health check of the previous version

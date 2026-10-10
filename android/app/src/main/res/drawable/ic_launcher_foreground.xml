@@ -1,0 +1,30 @@
+<!-- Adaptive-icon foreground: the white mark, scaled into the 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="256"
+    android:viewportHeight="256">
+    <group
+        android:pivotX="128"
+        android:pivotY="136"
+        android:scaleX="0.62"
+        android:scaleY="0.62"
+        android:translateY="-8">
+        <!-- phone (bowl of the P) -->
+        <path
+            android:pathData="M108,49 H160 A13,13 0 0 1 173,62 V130 A13,13 0 0 1 160,143 H108 A13,13 0 0 1 95,130 V62 A13,13 0 0 1 108,49 Z"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="18" />
+        <!-- camera, router node and its arc -->
+        <path android:fillColor="#FFFFFFFF" android:pathData="M127,61 a7,7 0 1,0 14,0 a7,7 0 1,0 -14,0 Z" />
+        <path android:fillColor="#FFFFFFFF" android:pathData="M124,114 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0 Z" />
+        <path
+            android:pathData="M114.5,104.9 A21.5,21.5 0 0 1 153.5,104.9"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="9" />
+        <!-- cable (stem of the P) and plug -->
+        <path android:fillColor="#FFFFFFFF" android:pathData="M86,120 H104 V196 H86 Z" />
+        <path android:fillColor="#FFFFFFFF" android:pathData="M80,190 H110 A6,6 0 0 1 116,196 V214 A6,6 0 0 1 110,220 H80 A6,6 0 0 1 74,214 V196 A6,6 0 0 1 80,190 Z" />
+        <path android:fillColor="#FFFFFFFF" android:pathData="M82,220 H90 V232 H82 Z M100,220 H108 V232 H100 Z" />
+    </group>
+</vector>
