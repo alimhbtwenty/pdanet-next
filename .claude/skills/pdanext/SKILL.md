@@ -20,11 +20,13 @@ Technical field notes: the `networking` skill.
 
 ## Repos and state
 - `alimhbtwenty/pdanet-next` (owner was asked to rename it to `pdanext` in GitHub Settings; GitHub
-  redirects the old URL). `main` at PR #2 merge. Latest release **v3.0.19**: `PdaNext-Setup.msi`,
-  `PdaNext-Windows.zip`, `PdaNext.apk`. CI = `.github/workflows/release.yml` (relay tests, Linux
+  redirects the old URL). The owner asked for a single clean release **v3.0.0** (`PdaNext-Setup.msi`,
+  `PdaNext-Windows.zip`, `PdaNext.apk`); old v2.0.x/v3.0.15/v3.0.19 tags were deleted, their release
+  pages had to be deleted by the owner (the session token cannot). Version source: root `VERSION`;
+  a release is published once per version. CI = `.github/workflows/release.yml` (relay tests, Linux
   e2e, APK, Windows build + logic tests vs live relay + MSI build/install/uninstall, release on main).
-- Stale branch `claude/rename-pdanext-fix-tunnel` (another session; proxy-based v2.1). Superseded;
-  suggested deleting it, owner has not answered.
+- Stale branch `claude/rename-pdanext-fix-tunnel` (another session, proxy-based) was deleted by the owner.
+- Repo About text still describes the old proxy design; owner was given new text to paste.
 - `alimhbtwenty/whatsapp-attendance-bot`: unrelated PWA. Branch `ccr-bd34aa07-k9vhv4` there holds 50
   third-party "antigravity" skills under `.claude/skills` (unmerged; owner said they are not
   repo-specific). The skills zip came from the owner; it was scanned and looked benign.
@@ -44,7 +46,8 @@ Technical field notes: the `networking` skill.
    NRPT against DNS leaks, AAAA/HTTPS withheld against IPv6 leaks, phone→PC ping, live pings in UI.
 5. Rename to **PdaNext** (package `io.github.alimhbtwenty.pdanext`), proxy mode removed.
 6. Logo (P = phone + USB cable/plug, violet→orange; `tools/logo/draw_logo.py`), MSI (WiX 5),
-   `LICENSE` (MIT), `networking` skill. Releases from `main`.
+   `LICENSE` (MIT), `networking` skill, this handoff (`CLAUDE.md` + `pdanext` skill).
+7. Versioning reset to 3.0.0 from one `VERSION` file.
 
 ## Decisions (do not relitigate without a reason)
 | Topic | Decision | Why |

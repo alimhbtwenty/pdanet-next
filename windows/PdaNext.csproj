@@ -9,7 +9,8 @@
     <RootNamespace>PdaNext</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>assets\app.ico</ApplicationIcon>
-    <Version>3.0.0</Version>
+    <!-- One version for every part of PdaNext: the VERSION file at the repo root. -->
+    <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\VERSION').Trim())</Version>
     <Product>PdaNext</Product>
     <Copyright>MIT</Copyright>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>

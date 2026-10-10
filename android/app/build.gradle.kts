@@ -3,6 +3,10 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// One version for every part of PdaNext: the VERSION file at the repo root.
+val appVersion = rootProject.file("../VERSION").readText().trim()
+val (vMajor, vMinor, vPatch) = appVersion.split(".").map { it.toInt() }
+
 android {
     namespace = "io.github.alimhbtwenty.pdanext"
     compileSdk = 35
@@ -11,8 +15,8 @@ android {
         applicationId = "io.github.alimhbtwenty.pdanext"
         minSdk = 24
         targetSdk = 35
-        versionCode = 3
-        versionName = "3.0.0"
+        versionCode = vMajor * 10000 + vMinor * 100 + vPatch
+        versionName = appVersion
     }
 
     buildTypes {
