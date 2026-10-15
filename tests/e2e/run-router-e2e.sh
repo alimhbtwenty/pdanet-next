@@ -81,6 +81,15 @@ class H(http.server.SimpleHTTPRequestHandler):
 socketserver.ThreadingTCPServer.allow_reuse_address = True
 socketserver.ThreadingTCPServer.daemon_threads = True
 socketserver.ThreadingTCPServer(("203.0.113.10", 8000), H).serve_forever()
+def fake_tunnel():
+    s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind(("127.0.0.1", 8002)); s.listen()
+    while True:
+        c, _ = s.accept()
+        c.recv(1024)
+        c.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nfrom-tunnel")
+        c.close()
+threading.Thread(target=fake_tunnel, daemon=True).start()
 PY
 SRV_PID=$!
 
@@ -101,7 +110,7 @@ PC="ip netns exec pc"
 check "sanity: PC cannot reach the target before the link is up" bash -c "! $PC curl -sf --max-time 3 http://203.0.113.10:8000/ -o /dev/null"
 
 # --- relay ("phone app") and TUN client ("PC app") ---
-"$RELAY_BIN" --bind 10.200.0.1 --port "$PORT" > "$WORK/relay.log" 2>&1 &
+"$RELAY_BIN" --bind 10.200.0.1 --port "$PORT" --tunnel-port 8002 > "$WORK/relay.log" 2>&1 &
 RELAY_PID=$!
 for _ in $(seq 50); do (exec 3<>/dev/tcp/10.200.0.1/$PORT) 2>/dev/null && break; sleep 0.2; done
 NO_IPV6=0
@@ -119,6 +128,9 @@ check "DNS: the router answers A queries via the phone's resolver" bash -c "$PC 
 check "DNS: NXDOMAIN for unknown names" bash -c "! $PC python3 -c \"import socket; socket.gethostbyname('nope.invalid')\""
 check "TCP by IP (HTTP GET)" $PC curl -sf --max-time 10 http://203.0.113.10:8000/ -o /dev/null
 check "TCP by name" $PC curl -sf --max-time 10 http://target.test:8000/ -o /dev/null
+check "tunnel TCP: foreign IP routes through tunnel" bash -c "$PC curl -sf --max-time 10 http://203.0.113.20:8000/ | grep -q 'from-tunnel'"
+check "tunnel DNS: foreign domain resolves via tunnel" bash -c "$PC python3 -c \"import socket; print(socket.gethostbyname('foreign.test'))\" | grep -qx 203.0.113.20"
+check "tunnel TCP: foreign domain routes through tunnel" bash -c "$PC curl -sf --max-time 10 http://foreign.test:8000/ | grep -q 'from-tunnel'"
 check "50 MB download, checksum intact" bash -c "[ \"\$($PC curl -sf --max-time 120 http://target.test:8000/big.bin | sha256sum | cut -d' ' -f1)\" = $sha_big ]"
 check "5 MB upload (POST echo)" bash -c "head -c 5000000 /dev/urandom > $WORK/up.bin && $PC curl -sf --max-time 60 --data-binary @$WORK/up.bin -H 'Content-Type: application/octet-stream' http://target.test:8000/ | cmp - $WORK/up.bin"
 check "half-close: server answers after the PC's FIN" bash -c "$PC python3 -c \"

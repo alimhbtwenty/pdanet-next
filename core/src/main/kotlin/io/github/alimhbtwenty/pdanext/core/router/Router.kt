@@ -129,11 +129,12 @@ class Router(
                 executor.execute {
                     val question = MiniDns.parseQuestion(query)
                     val type = question?.type
+                    val isDomestic = question != null && policy.isDomesticName(question.name)
                     val answer = if (config.ipv4OnlyDns && (type == MiniDns.TYPE_AAAA || type == MiniDns.TYPE_HTTPS)) {
                         MiniDns.noData(query)
                     } else {
-                        val isDomestic = question != null && policy.isDomesticName(question.name)
-                        if (isDomestic || tunnel == null) {
+                        val tun = tunnel
+                        if (isDomestic || tun == null) {
                             val resp = runCatching { direct.resolveDns(query) }.getOrNull()
                             if (resp != null && isDomestic) {
                                 val answers = MiniDns.parseAnswers(resp)
@@ -143,7 +144,7 @@ class Router(
                             }
                             resp ?: MiniDns.serverFailure(query)
                         } else {
-                            runCatching { tunnel.resolveDns(query) }.getOrNull() ?: MiniDns.serverFailure(query)
+                            runCatching { tun.resolveDns(query) }.getOrNull() ?: MiniDns.serverFailure(query)
                         }
                     }
                     if (answer != null) send(PacketBuilder.udp(gateway, 53, pc, pcPort, answer, 0, answer.size))

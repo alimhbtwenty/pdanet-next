@@ -26,6 +26,8 @@ class RouterLink(
     input: InputStream,
     private val config: RouterConfig,
     private val platform: RouterPlatform,
+    private val tunnel: Upstream? = null,
+    private val policy: BypassPolicy = BypassPolicy(),
 ) {
     private val input = DataInputStream(input)
     private val out = DataOutputStream(BufferedOutputStream(client.getOutputStream(), 256 * 1024))
@@ -55,7 +57,16 @@ class RouterLink(
 
         client.soTimeout = 0
         client.tcpNoDelay = true
-        router = Router(config, ::enqueue, platform, relay.stats) { relay.log("router: $it") }
+        router = Router(
+            config = config,
+            sendToPc = ::enqueue,
+            direct = DirectUpstream(platform),
+            tunnel = tunnel,
+            policy = policy,
+            stats = relay.stats,
+            platform = platform,
+            log = { relay.log("router: $it") },
+        )
         relay.attachRouter(this)
         relay.log("PC connected in router mode")
         val writer = Thread(::writeLoop, "router-link-writer").apply { isDaemon = true; start() }

@@ -19,7 +19,12 @@ import kotlin.random.Random
  * Sequence numbers are kept as Int: arithmetic wraps exactly like TCP's 32-bit space, and
  * `(a - b) > 0` means "a is after b".
  */
-internal class TcpSession(private val router: Router, val key: FlowKey, syn: IpPacket) {
+internal class TcpSession(
+    private val router: Router,
+    val key: FlowKey,
+    syn: IpPacket,
+    private val upstream: Upstream,
+) {
 
     private enum class State { CONNECTING, SYN_RCVD, ESTABLISHED, CLOSED }
 
@@ -29,7 +34,7 @@ internal class TcpSession(private val router: Router, val key: FlowKey, syn: IpP
 
     private val lock = Object()
     @Volatile private var state = State.CONNECTING
-    @Volatile private var socket: Socket? = null
+    @Volatile private var stream: StreamConnection? = null
 
     private val ourMss = if (key.remote is Inet6Address) router.tcpMss6 else router.tcpMss4
     private val segmentSize = minOf(syn.tcpMss() ?: 536, ourMss).coerceAtLeast(64)
@@ -57,13 +62,9 @@ internal class TcpSession(private val router: Router, val key: FlowKey, syn: IpP
     }
 
     private fun connect() {
-        val s = Socket()
-        try {
-            s.connect(InetSocketAddress(key.remote, key.remotePort), CONNECT_TIMEOUT_MS)
-            s.tcpNoDelay = true
-            s.keepAlive = true
+        val s = try {
+            upstream.connectTcp(key.remote, key.remotePort, CONNECT_TIMEOUT_MS)
         } catch (e: Exception) {
-            runCatching { s.close() }
             router.stats.failedConnections.incrementAndGet()
             synchronized(lock) {
                 if (state == State.CLOSED) return
@@ -78,7 +79,7 @@ internal class TcpSession(private val router: Router, val key: FlowKey, syn: IpP
                 runCatching { s.close() }
                 return
             }
-            socket = s
+            stream = s
             state = State.SYN_RCVD
             sendSynAck()
         }
