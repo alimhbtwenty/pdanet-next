@@ -1,5 +1,7 @@
 package io.github.alimhbtwenty.pdanext.core.router
 
+import io.github.alimhbtwenty.pdanext.core.LogLevel
+import io.github.alimhbtwenty.pdanext.core.LogSource
 import java.io.IOException
 import java.net.Inet6Address
 import java.net.InetSocketAddress
@@ -64,7 +66,10 @@ internal class TcpSession(private val router: Router, val key: FlowKey, syn: IpP
             s.keepAlive = true
         } catch (e: Exception) {
             runCatching { s.close() }
-            router.stats.failedConnections.incrementAndGet()
+            val fails = router.stats.failedConnections.incrementAndGet()
+            if (fails <= 5 || fails % 10L == 0L) {
+                router.log(LogLevel.WARN, LogSource.ROUTER, "TCP connect to ${key.remote.hostAddress}:${key.remotePort} failed: ${e.message} (total failed flows: $fails)")
+            }
             synchronized(lock) {
                 if (state == State.CLOSED) return
                 // Refused / unreachable: answer the SYN with RST so the PC app fails fast.

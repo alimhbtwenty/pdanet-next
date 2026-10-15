@@ -70,6 +70,46 @@ Test("phone status rejects a port that is not the relay", () =>
     catch (IOException) { }
 });
 
+Test("secret redactor: strips vless link and uuid from log line", () =>
+{
+    string uuid = "12345678-abcd-ef01-2345-6789abcdef01";
+    string vless = "vless://" + uuid + "@vpn.example.com:443?security=reality&sni=test.com#my-vpn";
+    string line = "Tunnel failed to connect to " + vless + " with user id " + uuid;
+    string redacted = SecretRedactor.Redact(line);
+
+    if (redacted.Contains(vless)) throw new Exception("vless URL was not stripped");
+    if (redacted.Contains(uuid)) throw new Exception("UUID was not stripped");
+    if (!redacted.Contains("vless://[REDACTED]")) throw new Exception("Expected vless redaction placeholder");
+    if (!redacted.Contains("[REDACTED-UUID]")) throw new Exception("Expected UUID redaction placeholder");
+});
+
+Test("secret redactor: credentials in url and passwords stripped", () =>
+{
+    string line = "Fetching http://admin:superSecret123@192.168.42.1:28080/config?password=pass123";
+    string redacted = SecretRedactor.Redact(line);
+    if (redacted.Contains("superSecret123")) throw new Exception("Password in URL was not stripped");
+    if (redacted.Contains("pass123")) throw new Exception("Password param was not stripped");
+});
+
+Test("file logger: cleans old logs older than retention period", () =>
+{
+    string tempDir = Path.Combine(Path.GetTempPath(), "pdanext-test-logs-" + Guid.NewGuid().ToString("N"));
+    try
+    {
+        Directory.CreateDirectory(tempDir);
+        string oldFile = Path.Combine(tempDir, "pdanext-20200101.log");
+        File.WriteAllText(oldFile, "old logs");
+        File.SetLastWriteTimeUtc(oldFile, DateTime.UtcNow.AddDays(-10));
+
+        FileLogger.CleanOldLogs(tempDir);
+        if (File.Exists(oldFile)) throw new Exception("Old log file was not cleaned");
+    }
+    finally
+    {
+        if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+    }
+});
+
 string relayPort = Environment.GetEnvironmentVariable("RELAY_PORT");
 if (!string.IsNullOrEmpty(relayPort))
 {

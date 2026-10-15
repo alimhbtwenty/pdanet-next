@@ -36,6 +36,7 @@ class RelayServer(
     private val statusExtras: () -> Map<String, Any?> = { emptyMap() },
     private val routerConfig: RouterConfig = RouterConfig(),
     private val routerPlatform: RouterPlatform = JvmRouterPlatform(),
+    val logBuffer: LogRingBuffer = LogRingBuffer(),
 ) {
     val stats = RelayStats()
 
@@ -123,7 +124,7 @@ class RelayServer(
             input.reset()
             when (String(head, Charsets.US_ASCII)) {
                 RouterLink.MAGIC -> RouterLink(this, client, input, routerConfig, routerPlatform).run()
-                "GET " -> serveHttp(input, client.getOutputStream())
+                "GET " -> serveHttp(client, input, client.getOutputStream())
             }
         } catch (e: Exception) {
             if (e !is SocketException) log("session error: ${e.javaClass.simpleName}: ${e.message}")
@@ -133,8 +134,8 @@ class RelayServer(
         }
     }
 
-    /** Tiny HTTP/1.1 responder for the PC app's status and ping requests. */
-    private fun serveHttp(input: InputStream, output: OutputStream) {
+    /** Tiny HTTP/1.1 responder for the PC app's status, ping, and log requests. */
+    private fun serveHttp(client: Socket, input: InputStream, output: OutputStream) {
         val line = StringBuilder()
         while (line.length < 1024) {
             val b = input.read()
@@ -142,6 +143,27 @@ class RelayServer(
             line.append(b.toChar())
         }
         val path = line.split(' ').getOrNull(1)?.substringBefore('?')
+        if (path == "/log") {
+            if (!client.inetAddress.isLoopbackAddress) {
+                val body = "403 Forbidden: loopback only\n".toByteArray()
+                output.write(
+                    ("HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain; charset=utf-8\r\n" +
+                        "Content-Length: ${body.size}\r\nConnection: close\r\n\r\n").toByteArray()
+                )
+                output.write(body)
+                output.flush()
+                return
+            }
+            val text = logBuffer.dumpText()
+            val bytes = text.toByteArray(Charsets.UTF_8)
+            output.write(
+                ("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\n" +
+                    "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n").toByteArray()
+            )
+            output.write(bytes)
+            output.flush()
+            return
+        }
         val body = when (path) {
             "/status" -> statusJson()
             "/ping-pc" -> "{\"ms\":${activeRouter?.pingClient() ?: "null"}}"
@@ -159,7 +181,15 @@ class RelayServer(
 
     private fun track(socket: Socket) { openSockets.add(socket) }
     private fun untrack(socket: Socket) { openSockets.remove(socket) }
-    internal fun log(message: String) = log.invoke(message)
+    internal fun log(message: String) {
+        logBuffer.log(LogLevel.INFO, LogSource.SERVICE, message)
+        log.invoke(message)
+    }
+
+    internal fun log(level: LogLevel, source: LogSource, message: String) {
+        logBuffer.log(level, source, message)
+        log.invoke("[$source] $message")
+    }
 
     internal fun statusJson(): String {
         val fields = linkedMapOf<String, Any?>(

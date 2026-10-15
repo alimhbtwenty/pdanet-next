@@ -99,6 +99,7 @@ namespace PdaNext
         bool pinging;
         TextBox txtLog;
         LinkLabel lnkLog;
+        Button btnSaveDiag;
         ToolStripMenuItem trayConnect, trayStatus;
 
         PhoneStatus lastStatus;
@@ -257,7 +258,7 @@ namespace PdaNext
             lnkLog = new LinkLabel
             {
                 Text = "Show log",
-                Location = new Point(x + 2, y),
+                Location = new Point(x + 2, y + 4),
                 AutoSize = true,
                 LinkColor = Theme.Accent,
                 ActiveLinkColor = Theme.Accent,
@@ -265,7 +266,23 @@ namespace PdaNext
             };
             lnkLog.LinkClicked += (s, e) => ToggleLog();
             Controls.Add(lnkLog);
-            y += 26;
+
+            btnSaveDiag = new Button
+            {
+                Text = "Save diagnostics",
+                Location = new Point(x + w - 130, y),
+                Size = new Size(130, 26),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Theme.Card,
+                ForeColor = Theme.Text,
+                Font = Theme.UI(8.5f),
+                Cursor = Cursors.Hand,
+            };
+            btnSaveDiag.FlatAppearance.BorderSize = 1;
+            btnSaveDiag.FlatAppearance.BorderColor = Theme.Stroke;
+            btnSaveDiag.Click += async (s, e) => await SaveDiagnosticsAsync();
+            Controls.Add(btnSaveDiag);
+            y += 32;
 
             txtLog = new TextBox
             {
@@ -440,6 +457,38 @@ namespace PdaNext
             txtLog.Visible = !txtLog.Visible;
             lnkLog.Text = txtLog.Visible ? "Hide log" : "Show log";
             ClientSize = new Size(ClientSize.Width, txtLog.Visible ? 720 + 160 : 720);
+        }
+
+        async System.Threading.Tasks.Task SaveDiagnosticsAsync()
+        {
+            using (var dlg = new SaveFileDialog())
+            {
+                dlg.Title = "Save Diagnostics";
+                dlg.Filter = "Zip Archive (*.zip)|*.zip";
+                dlg.FileName = "pdanext-diagnostics-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".zip";
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+                btnSaveDiag.Enabled = false;
+                string prevText = btnSaveDiag.Text;
+                btnSaveDiag.Text = "Saving…";
+                try
+                {
+                    string target = dlg.FileName;
+                    int port = bridge.Port;
+                    string cachedStatus = bridge.LastStatus?.RawJson ?? lastStatus?.RawJson;
+                    await System.Threading.Tasks.Task.Run(() => Diagnostics.Collect(target, port, cachedStatus));
+                    MessageBox.Show(this, "Diagnostics saved to:\n" + target, "Diagnostics Saved", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, "Failed to save diagnostics: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                finally
+                {
+                    btnSaveDiag.Enabled = true;
+                    btnSaveDiag.Text = prevText;
+                }
+            }
         }
 
         void AppendLog(string line)

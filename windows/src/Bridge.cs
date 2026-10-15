@@ -25,6 +25,8 @@ namespace PdaNext
         /// <summary>The phone's address on the USB network while connected.</summary>
         public string RouterAddress => tunnel?.Hello?.Gateway4?.ToString();
         public AdbDevice ActiveDevice { get; private set; }
+        public int Port => port;
+        public PhoneStatus LastStatus { get; private set; }
 
         readonly int port = AppSettings.RelayPort;
         readonly AutoResetEvent wake = new AutoResetEvent(false);
@@ -243,6 +245,7 @@ namespace PdaNext
             var status = TryStatus();
             if (status != null)
             {
+                LastStatus = status;
                 statusFailures = 0;
                 StatusUpdated?.Invoke(status);
                 return;
@@ -298,7 +301,11 @@ namespace PdaNext
             while (DateTime.UtcNow < until && wantConnected && !disposed)
             {
                 var s = TryStatus();
-                if (s != null) return s;
+                if (s != null)
+                {
+                    LastStatus = s;
+                    return s;
+                }
                 Thread.Sleep(700);
             }
             return null;
@@ -311,7 +318,13 @@ namespace PdaNext
             StateChanged?.Invoke(state, message);
         }
 
-        void Emit(string line) => Log?.Invoke(DateTime.Now.ToString("HH:mm:ss") + "  " + line);
+        void Emit(string line)
+        {
+            string formatted = DateTime.Now.ToString("HH:mm:ss") + "  " + line;
+            string redacted = SecretRedactor.Redact(formatted);
+            FileLogger.Log(redacted);
+            Log?.Invoke(redacted);
+        }
 
         static string LastLine(string s) => s.Trim().Split('\n').LastOrDefault()?.Trim() ?? "";
     }
