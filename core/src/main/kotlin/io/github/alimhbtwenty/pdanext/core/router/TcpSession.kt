@@ -160,7 +160,7 @@ internal class TcpSession(private val router: Router, val key: FlowKey, syn: IpP
 
     /** remote -> PC */
     private fun readerLoop() {
-        val input = try { socket!!.getInputStream() } catch (e: IOException) { abort(true); return }
+        val input = try { stream!!.input } catch (e: IOException) { abort(true); return }
         val buf = ByteArray(segmentSize)
         try {
             while (true) {
@@ -209,8 +209,8 @@ internal class TcpSession(private val router: Router, val key: FlowKey, syn: IpP
     /** PC -> remote */
     private fun writerLoop() {
         try {
-            val s = socket ?: return
-            val out = s.getOutputStream()
+            val s = stream ?: return
+            val out = s.output
             while (true) {
                 val chunk = toRemote.take()
                 if (chunk === EOF) {
@@ -264,7 +264,7 @@ internal class TcpSession(private val router: Router, val key: FlowKey, syn: IpP
 
     private fun finish() {
         state = State.CLOSED
-        runCatching { socket?.close() }
+        runCatching { stream?.close() }
         toRemote.clear()
         toRemote.add(EOF)
         unacked.clear()

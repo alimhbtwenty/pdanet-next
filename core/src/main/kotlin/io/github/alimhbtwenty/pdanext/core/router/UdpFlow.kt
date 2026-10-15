@@ -1,14 +1,14 @@
 package io.github.alimhbtwenty.pdanext.core.router
 
 import java.io.IOException
-import java.net.DatagramPacket
-import java.net.DatagramSocket
-import java.net.InetSocketAddress
 import java.net.SocketTimeoutException
 
-/** One UDP flow from the PC (source port -> destination), mapped to a connected datagram socket. */
-internal class UdpFlow(private val router: Router, private val key: FlowKey) {
-    private val socket = DatagramSocket().apply { connect(InetSocketAddress(key.remote, key.remotePort)) }
+/** One UDP flow from the PC (source port -> destination), mapped to a datagram flow. */
+internal class UdpFlow(
+    private val router: Router,
+    val key: FlowKey,
+    private val flow: DatagramFlow,
+) {
     private val idleMs = if (key.remotePort == 53) 20_000L else 120_000L
     @Volatile var closed = false
         private set
@@ -21,7 +21,7 @@ internal class UdpFlow(private val router: Router, private val key: FlowKey) {
     fun send(buf: ByteArray, offset: Int, length: Int) {
         lastActive = System.currentTimeMillis()
         try {
-            socket.send(DatagramPacket(buf, offset, length))
+            flow.send(buf, offset, length)
             router.stats.bytesUp.addAndGet(length.toLong())
         } catch (e: IOException) {
             // e.g. port unreachable reported on a connected socket; the PC app will retry or time out.
@@ -30,13 +30,10 @@ internal class UdpFlow(private val router: Router, private val key: FlowKey) {
 
     private fun receiveLoop() {
         val buf = ByteArray(65535)
-        val packet = DatagramPacket(buf, buf.size)
         try {
-            socket.soTimeout = 1000
             while (!closed) {
-                try {
-                    packet.setData(buf)
-                    socket.receive(packet)
+                val len = try {
+                    flow.receive(buf)
                 } catch (_: SocketTimeoutException) {
                     continue
                 } catch (e: IOException) {
@@ -44,8 +41,8 @@ internal class UdpFlow(private val router: Router, private val key: FlowKey) {
                     continue // ICMP errors on a connected socket surface here; keep the flow.
                 }
                 lastActive = System.currentTimeMillis()
-                router.stats.bytesDown.addAndGet(packet.length.toLong())
-                router.send(PacketBuilder.udp(key.remote, key.remotePort, key.pc, key.pcPort, buf, 0, packet.length))
+                router.stats.bytesDown.addAndGet(len.toLong())
+                router.send(PacketBuilder.udp(key.remote, key.remotePort, key.pc, key.pcPort, buf, 0, len))
             }
         } finally {
             close()
@@ -59,7 +56,7 @@ internal class UdpFlow(private val router: Router, private val key: FlowKey) {
     fun close() {
         if (closed) return
         closed = true
-        socket.close()
+        runCatching { flow.close() }
         router.udpClosed(key)
     }
 }
