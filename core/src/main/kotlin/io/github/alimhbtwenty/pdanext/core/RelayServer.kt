@@ -31,11 +31,13 @@ import java.util.concurrent.atomic.AtomicInteger
 class RelayServer(
     val port: Int = DEFAULT_PORT,
     private val bindAddress: InetAddress = InetAddress.getLoopbackAddress(),
-    private val log: (String) -> Unit = {},
+    internal val log: (String) -> Unit = {},
     /** Extra fields for the status endpoint, e.g. whether a phone VPN is active. */
-    private val statusExtras: () -> Map<String, Any?> = { emptyMap() },
+    internal val statusExtras: () -> Map<String, Any?> = { emptyMap() },
     private val routerConfig: RouterConfig = RouterConfig(),
     private val routerPlatform: RouterPlatform = JvmRouterPlatform(),
+    val requireProtection: Boolean = routerConfig.requireProtection,
+    val isProtected: (() -> Boolean)? = null,
 ) {
     val stats = RelayStats()
 
@@ -162,6 +164,10 @@ class RelayServer(
     internal fun log(message: String) = log.invoke(message)
 
     internal fun statusJson(): String {
+        val isRouter = link != null
+        val router = activeRouter
+        val ks = router?.requireProtection ?: requireProtection
+        val prot = router?.isProtected ?: (isProtected?.invoke() ?: (statusExtras()["vpnActive"] == true))
         val fields = linkedMapOf<String, Any?>(
             "app" to "pdanext",
             "version" to VERSION,
@@ -171,9 +177,13 @@ class RelayServer(
             "activeUdp" to stats.activeUdp.get(),
             "totalConnections" to stats.totalConnections.get(),
             "failedConnections" to stats.failedConnections.get(),
-            "routerMode" to (link != null),
+            "routerMode" to isRouter,
+            "protected" to prot,
+            "killSwitch" to ks,
         )
         fields.putAll(runCatching(statusExtras).getOrDefault(emptyMap()))
+        fields["protected"] = prot
+        fields["killSwitch"] = ks
         return Json.encode(fields)
     }
 

@@ -70,6 +70,78 @@ Test("phone status rejects a port that is not the relay", () =>
     catch (IOException) { }
 });
 
+Test("phone status json parses protected and killSwitch fields", () =>
+{
+    var s = PhoneStatus.Parse(
+        "{\"app\":\"pdanext\",\"version\":\"3.0.0\",\"bytesUp\":100,\"bytesDown\":200,\"activeTcp\":1," +
+        "\"activeUdp\":1,\"totalConnections\":2,\"failedConnections\":0,\"uplinkConnected\":true,\"uplink\":\"wifi\"," +
+        "\"vpnActive\":true,\"protected\":true,\"killSwitch\":true,\"device\":\"test-phone\"}");
+    Equal(true, s.Protected, "protected");
+    Equal(true, s.KillSwitch, "killSwitch");
+
+    var s2 = PhoneStatus.Parse(
+        "{\"app\":\"pdanext\",\"version\":\"3.0.0\",\"bytesUp\":0,\"bytesDown\":0,\"activeTcp\":0," +
+        "\"activeUdp\":0,\"totalConnections\":0,\"failedConnections\":0,\"uplinkConnected\":false,\"uplink\":\"none\"," +
+        "\"vpnActive\":false,\"protected\":false,\"killSwitch\":false,\"device\":\"test-phone\"}");
+    Equal(false, s2.Protected, "protected false");
+    Equal(false, s2.KillSwitch, "killSwitch false");
+});
+
+Test("kill switch firewall: generated command strings", () =>
+{
+    string blockCmd = KillSwitchFirewall.BuildAddBlockRuleCommand();
+    Equal(true, blockCmd.Contains("New-NetFirewallRule"), "has New-NetFirewallRule");
+    Equal(true, blockCmd.Contains("-DisplayName 'PdaNext Kill Switch - Block Outbound'"), "has DisplayName");
+    Equal(true, blockCmd.Contains("-Group 'PdaNext Kill Switch'"), "has Group");
+    Equal(true, blockCmd.Contains("-Direction Outbound"), "has Direction");
+    Equal(true, blockCmd.Contains("-Action Block"), "has Action");
+    Equal(true, blockCmd.Contains("-Profile Any"), "has Profile");
+
+    string allowAdbCmd = KillSwitchFirewall.BuildAddAllowAdbCommand("C:\\Tools\\adb.exe");
+    Equal(true, allowAdbCmd.Contains("-DisplayName 'PdaNext Kill Switch - Allow ADB'"), "adb DisplayName");
+    Equal(true, allowAdbCmd.Contains("-Group 'PdaNext Kill Switch'"), "adb Group");
+    Equal(true, allowAdbCmd.Contains("-Program 'C:\\Tools\\adb.exe'"), "adb Program");
+    Equal(true, allowAdbCmd.Contains("-Action Allow"), "adb Action");
+
+    string allowLoopbackCmd = KillSwitchFirewall.BuildAddAllowLoopbackCommand();
+    Equal(true, allowLoopbackCmd.Contains("-DisplayName 'PdaNext Kill Switch - Allow Loopback'"), "loopback DisplayName");
+    Equal(true, allowLoopbackCmd.Contains("-RemoteAddress '127.0.0.1','::1'"), "loopback RemoteAddress");
+    Equal(true, allowLoopbackCmd.Contains("-Action Allow"), "loopback Action");
+
+    string removeCmd = KillSwitchFirewall.BuildRemoveRulesCommand();
+    Equal(true, removeCmd.Contains("Remove-NetFirewallRule"), "remove command");
+    Equal(true, removeCmd.Contains("-Group 'PdaNext Kill Switch'"), "remove Group");
+    Equal(true, removeCmd.Contains("-ErrorAction SilentlyContinue"), "remove SilentlyContinue");
+});
+
+Test("kill switch firewall: apply and remove sequence", () =>
+{
+    var executed = new List<string>();
+    KillSwitchFirewall.CommandRunner = cmd =>
+    {
+        executed.Add(cmd);
+        return new ProcessResult { ExitCode = 0, Output = "OK" };
+    };
+
+    var logs = new List<string>();
+    KillSwitchFirewall.Apply(logs.Add, "C:\\Tools\\adb.exe");
+
+    Equal(true, KillSwitchFirewall.IsActive, "IsActive after Apply");
+    // Should have run remove first to clear old rules, then 3 add rules
+    Equal(4, executed.Count, "4 commands on apply");
+    Equal(true, executed[0].StartsWith("Remove-NetFirewallRule"), "1st is remove");
+    Equal(true, executed[1].Contains("-Action Block"), "2nd is block rule");
+    Equal(true, executed[2].Contains("C:\\Tools\\adb.exe"), "3rd is allow adb");
+    Equal(true, executed[3].Contains("'127.0.0.1','::1'"), "4th is allow loopback");
+
+    executed.Clear();
+    KillSwitchFirewall.Remove(logs.Add);
+
+    Equal(false, KillSwitchFirewall.IsActive, "IsActive false after Remove");
+    Equal(1, executed.Count, "1 command on remove");
+    Equal(true, executed[0].StartsWith("Remove-NetFirewallRule"), "remove called");
+});
+
 string relayPort = Environment.GetEnvironmentVariable("RELAY_PORT");
 if (!string.IsNullOrEmpty(relayPort))
 {

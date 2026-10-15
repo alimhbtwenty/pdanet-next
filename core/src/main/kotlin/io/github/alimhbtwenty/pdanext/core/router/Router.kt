@@ -25,7 +25,16 @@ data class RouterConfig(
      * (e.g. Wi-Fi) by source-address rules and bypass the phone; IPv4-only DNS keeps every flow here.
      */
     val ipv4OnlyDns: Boolean = true,
+    /** Require that traffic only leaves over a protected path (VPN/tunnel). */
+    val requireProtection: Boolean = false,
+    val protectionMode: ProtectionMode = ProtectionMode.EXTERNAL_VPN,
+    val bypassPolicy: BypassPolicy? = null,
 )
+
+enum class ProtectionMode {
+    EXTERNAL_VPN,
+    XRAY,
+}
 
 /** What the router needs from the platform it runs on. */
 interface RouterPlatform {
@@ -55,7 +64,48 @@ class Router(
     private val platform: RouterPlatform,
     val stats: RelayStats,
     private val log: (String) -> Unit = {},
+    var isProtectedProvider: (() -> Boolean)? = null,
 ) {
+    @Volatile var requireProtection: Boolean = config.requireProtection
+    @Volatile var protectionMode: ProtectionMode = config.protectionMode
+    @Volatile var bypassPolicy: BypassPolicy? = config.bypassPolicy
+    @Volatile var isVpnActive: (() -> Boolean)? = null
+    @Volatile var isTunnelConnected: (() -> Boolean)? = null
+
+    val isProtected: Boolean
+        get() = isProtectedProvider?.invoke()
+            ?: when (protectionMode) {
+                ProtectionMode.EXTERNAL_VPN -> isVpnActive?.invoke() ?: false
+                ProtectionMode.XRAY -> isTunnelConnected?.invoke() ?: false
+            }
+
+    private val blockedFlowsCount = AtomicInteger()
+    @Volatile private var lastBlockedLogTime = System.currentTimeMillis()
+
+    internal fun recordBlockedFlow() {
+        blockedFlowsCount.incrementAndGet()
+    }
+
+    internal fun flushBlockedLog(): Int {
+        val count = blockedFlowsCount.getAndSet(0)
+        if (count > 0) {
+            log("kill switch: blocked $count flow(s) in the last minute")
+        }
+        return count
+    }
+
+    internal fun shouldBlockFlow(dst: InetAddress): Boolean {
+        if (!requireProtection) return false
+        if (isProtected) return false
+        // Domestic DIRECT flows (BypassPolicy) are allowed only in Xray mode.
+        if (protectionMode == ProtectionMode.XRAY && bypassPolicy != null) {
+            if (bypassPolicy?.route(dst) == Route.DIRECT) {
+                return false
+            }
+        }
+        return true
+    }
+
     internal val executor: ExecutorService = Executors.newCachedThreadPool(daemon("router"))
     internal val timer: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor(daemon("router-timer"))
     internal val tcp = ConcurrentHashMap<FlowKey, TcpSession>()
@@ -131,6 +181,10 @@ class Router(
 
     private fun handleIcmp(p: IpPacket) {
         if (!isEchoRequest(p)) return
+        if (shouldBlockFlow(p.dst)) {
+            recordBlockedFlow()
+            return
+        }
         if (activePings.get() >= MAX_PINGS) return
         val payload = p.copyOf(p.icmpDataOffset, p.icmpDataLength)
         val id = p.icmpId
@@ -157,6 +211,11 @@ class Router(
         val key = FlowKey(p.src, p.srcPort, p.dst, p.dstPort)
         var flow = udp[key]
         if (flow == null || flow.closed) {
+            if (shouldBlockFlow(p.dst)) {
+                recordBlockedFlow()
+                send(PacketBuilder.portUnreachable(gatewayFor(p), p))
+                return
+            }
             flow = try {
                 UdpFlow(this, key)
             } catch (e: Exception) {
@@ -185,6 +244,11 @@ class Router(
             return
         }
         if (flags and TCP_SYN != 0 && flags and TCP_ACK == 0) {
+            if (shouldBlockFlow(p.dst)) {
+                recordBlockedFlow()
+                sendRstFor(p)
+                return
+            }
             val s = TcpSession(this, key, p)
             if (tcp.putIfAbsent(key, s) == null) {
                 stats.activeTcp.incrementAndGet()
@@ -224,6 +288,13 @@ class Router(
         val now = System.currentTimeMillis()
         tcp.values.forEach { it.onTimer(now) }
         udp.values.forEach { it.onTimer(now) }
+        if (now - lastBlockedLogTime >= 60_000) {
+            lastBlockedLogTime = now
+            val count = blockedFlowsCount.getAndSet(0)
+            if (count > 0) {
+                log("kill switch: blocked $count flow(s) in the last minute")
+            }
+        }
     }
 
     fun shutdown() {

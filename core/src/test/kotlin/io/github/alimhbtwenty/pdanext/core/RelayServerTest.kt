@@ -27,6 +27,27 @@ class RelayServerTest {
         assertTrue("\"app\":\"pdanext\"" in response, response)
         assertTrue("\"vpnActive\":true" in response, response)
         assertTrue("\"routerMode\":false" in response, response)
+        assertTrue("\"protected\":true" in response, response)
+        assertTrue("\"killSwitch\":false" in response, response)
+    }
+
+    @Test
+    fun `status endpoint reports killSwitch true and protected false when protection is required but inactive`() {
+        val server = RelayServer(
+            port = ServerSocket(0).use { it.localPort },
+            requireProtection = true,
+            isProtected = { false },
+        ).also { it.start() }
+        try {
+            val response = Socket(InetAddress.getLoopbackAddress(), server.port).use { s ->
+                s.getOutputStream().write("GET /status HTTP/1.1\r\nHost: phone\r\n\r\n".toByteArray())
+                String(s.getInputStream().readBytes())
+            }
+            assertTrue("\"killSwitch\":true" in response, response)
+            assertTrue("\"protected\":false" in response, response)
+        } finally {
+            server.stop()
+        }
     }
 
     @Test

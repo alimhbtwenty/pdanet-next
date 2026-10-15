@@ -102,4 +102,117 @@ class RouterTest {
             router.shutdown()
         }
     }
+
+    @Test
+    fun `router with requireProtection blocks TCP SYN with RST and UDP with ICMP port unreachable when protection is down`() {
+        val out = LinkedBlockingQueue<ByteArray>()
+        val platform = object : RouterPlatform {
+            override fun resolveDns(query: ByteArray) = null
+            override fun ping(destination: InetAddress, payload: ByteArray, timeoutMs: Int) = false
+        }
+        val config = RouterConfig(requireProtection = true)
+        val router = Router(config, { out.add(it) }, platform, RelayStats(), isProtectedProvider = { false })
+        fun next(): IpPacket = out.poll(2, TimeUnit.SECONDS)!!.let { IpPacket.parse(it, it.size)!! }
+        try {
+            val foreignDst = InetAddress.getByName("203.0.113.10")
+
+            // 1. TCP SYN to foreign destination must get RST
+            val syn = PacketBuilder.tcp(pc, 50000, foreignDst, 443, 1000L, 0, TCP_SYN, 65535)
+            router.onPacket(syn, syn.size)
+            val rst = next()
+            assertEquals(PROTO_TCP, rst.protocol)
+            assertEquals(443, rst.srcPort)
+            assertEquals(50000, rst.dstPort)
+            assertTrue(rst.tcpFlags and TCP_RST != 0, "RST flag must be set")
+            assertTrue(rst.tcpFlags and TCP_ACK != 0, "ACK flag must be set for RST to SYN")
+            assertEquals(1001L, rst.tcpAck, "ACK number must be seq + 1")
+
+            // 2. UDP packet to foreign destination must get ICMP port unreachable (type 3 code 3)
+            val udpData = "test-udp".toByteArray()
+            val udp = PacketBuilder.udp(pc, 50001, foreignDst, 8080, udpData, 0, udpData.size)
+            router.onPacket(udp, udp.size)
+            val icmp = next()
+            assertEquals(PROTO_ICMP, icmp.protocol)
+            assertEquals(gw, icmp.src, "ICMP unreachable must come from gateway")
+            assertEquals(pc, icmp.dst)
+            assertEquals(3, icmp.icmpType, "ICMP type must be 3 (Destination Unreachable)")
+            assertEquals(3, icmp.icmpCode, "ICMP code must be 3 (Port Unreachable)")
+
+            // 3. Count is recorded and logged
+            val logged = mutableListOf<String>()
+            val loggingRouter = Router(config, { }, platform, RelayStats(), log = { logged += it }, isProtectedProvider = { false })
+            loggingRouter.onPacket(syn, syn.size)
+            loggingRouter.onPacket(udp, udp.size)
+            val count = loggingRouter.flushBlockedLog()
+            assertEquals(2, count)
+            assertEquals(1, logged.size)
+            assertTrue("kill switch: blocked 2 flow(s)" in logged[0], logged[0])
+            loggingRouter.shutdown()
+        } finally {
+            router.shutdown()
+        }
+    }
+
+    @Test
+    fun `domestic DIRECT flows are allowed only in Xray mode when protection is down`() {
+        val out = LinkedBlockingQueue<ByteArray>()
+        val platform = object : RouterPlatform {
+            override fun resolveDns(query: ByteArray) = null
+            override fun ping(destination: InetAddress, payload: ByteArray, timeoutMs: Int) = false
+        }
+        val domesticIp = InetAddress.getByName("185.143.232.1") // Iranian IP range in BypassPolicy
+        val foreignIp = InetAddress.getByName("93.184.216.34")
+        val irRanges = Ipv4Ranges.parse("185.143.232.0/22\n")
+        val policy = BypassPolicy(emptyList(), irRanges)
+        assertEquals(Route.DIRECT, policy.route(domesticIp))
+        assertEquals(Route.TUNNEL, policy.route(foreignIp))
+
+        // Case A: External VPN mode with protection DOWN -> Domestic DIRECT is NOT allowed (must get RST)
+        val vpnRouter = Router(
+            RouterConfig(requireProtection = true, protectionMode = ProtectionMode.EXTERNAL_VPN, bypassPolicy = policy),
+            { out.add(it) }, platform, RelayStats(), isProtectedProvider = { false }
+        )
+        try {
+            assertTrue(vpnRouter.shouldBlockFlow(domesticIp), "External VPN mode must block domestic when VPN is down")
+            assertTrue(vpnRouter.shouldBlockFlow(foreignIp), "External VPN mode must block foreign when VPN is down")
+
+            val synDomestic = PacketBuilder.tcp(pc, 50010, domesticIp, 443, 2000L, 0, TCP_SYN, 65535)
+            vpnRouter.onPacket(synDomestic, synDomestic.size)
+            val replyA = out.poll(2, TimeUnit.SECONDS)!!.let { IpPacket.parse(it, it.size)!! }
+            assertTrue(replyA.tcpFlags and TCP_RST != 0, "External VPN mode must block domestic when VPN is down")
+        } finally {
+            vpnRouter.shutdown()
+        }
+
+        // Case B: Xray mode with protection DOWN -> Domestic DIRECT IS allowed (shouldBlockFlow == false)
+        val xrayRouter = Router(
+            RouterConfig(requireProtection = true, protectionMode = ProtectionMode.XRAY, bypassPolicy = policy),
+            { out.add(it) }, platform, RelayStats(), isProtectedProvider = { false }
+        )
+        try {
+            assertEquals(false, xrayRouter.shouldBlockFlow(domesticIp), "Domestic DIRECT in Xray mode must not be blocked")
+            assertEquals(true, xrayRouter.shouldBlockFlow(foreignIp), "Foreign destination in Xray mode must be blocked")
+
+            // Foreign destination in Xray mode MUST be blocked (RST)
+            val synForeign = PacketBuilder.tcp(pc, 50012, foreignIp, 443, 2002L, 0, TCP_SYN, 65535)
+            xrayRouter.onPacket(synForeign, synForeign.size)
+            val replyForeign = out.poll(2, TimeUnit.SECONDS)!!.let { IpPacket.parse(it, it.size)!! }
+            assertTrue(replyForeign.tcpFlags and TCP_RST != 0, "Foreign destination in Xray mode must be blocked when tunnel is down")
+
+            // UDP to foreign destination gets ICMP port unreachable
+            val udpForeign = PacketBuilder.udp(pc, 50013, foreignIp, 8080, "test".toByteArray(), 0, 4)
+            xrayRouter.onPacket(udpForeign, udpForeign.size)
+            val icmpForeign = out.poll(2, TimeUnit.SECONDS)!!.let { IpPacket.parse(it, it.size)!! }
+            assertEquals(3, icmpForeign.icmpType, "Foreign UDP must get ICMP type 3")
+            assertEquals(3, icmpForeign.icmpCode, "Foreign UDP must get ICMP code 3 (port unreachable)")
+
+            // UDP to domestic destination in Xray mode is NOT blocked by kill switch (no ICMP port unreachable generated)
+            val udpDomestic = PacketBuilder.udp(pc, 50014, domesticIp, 8080, "test".toByteArray(), 0, 4)
+            xrayRouter.onPacket(udpDomestic, udpDomestic.size)
+            val nextPacket = out.poll(200, TimeUnit.MILLISECONDS)
+            assertTrue(nextPacket == null, "Domestic UDP in Xray mode must not receive ICMP port unreachable")
+        } finally {
+            xrayRouter.shutdown()
+        }
+    }
 }

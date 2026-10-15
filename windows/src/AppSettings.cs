@@ -24,6 +24,13 @@ namespace PdaNext
             set => SetInt("PreventDnsLeaks", value ? 1 : 0);
         }
 
+        /// <summary>Block outbound internet if the phone link drops, preventing fallback to Wi-Fi/Ethernet.</summary>
+        public static bool KillSwitch
+        {
+            get => GetInt("KillSwitch", 0) == 1;
+            set => SetInt("KillSwitch", value ? 1 : 0);
+        }
+
         /// <summary>Mode of a session that was never cleanly closed, or null. Used to repair after a crash.</summary>
         public static string ActiveSession
         {

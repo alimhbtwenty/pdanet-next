@@ -54,9 +54,14 @@ class RouterLink(
         out.flush()
 
         client.soTimeout = 0
-        client.tcpNoDelay = true
-        router = Router(config, ::enqueue, platform, relay.stats) { relay.log("router: $it") }
-        relay.attachRouter(this)
+        router = Router(
+            config = config,
+            sendToPc = ::enqueue,
+            platform = platform,
+            stats = relay.stats,
+            log = { relay.log("router: $it") },
+            isProtectedProvider = relay.isProtected ?: { (relay.statusExtras()["vpnActive"] as? Boolean) == true },
+        )
         relay.log("PC connected in router mode")
         val writer = Thread(::writeLoop, "router-link-writer").apply { isDaemon = true; start() }
         val buf = ByteArray(65535)

@@ -8,7 +8,7 @@ using System.Threading;
 
 namespace PdaNext
 {
-    public enum BridgeState { Disconnected, Waiting, Connecting, Connected, Error }
+    public enum BridgeState { Disconnected, Waiting, Connecting, Connected, Error, Blocked }
 
     /// <summary>
     /// Owns the connection. All work happens on one background thread, so connect, disconnect,
@@ -22,6 +22,7 @@ namespace PdaNext
         public event Action<List<AdbDevice>> DevicesChanged;
 
         public BridgeState State { get; private set; } = BridgeState.Disconnected;
+        public string BlockedReason { get; private set; }
         /// <summary>The phone's address on the USB network while connected.</summary>
         public string RouterAddress => tunnel?.Hello?.Gateway4?.ToString();
         public AdbDevice ActiveDevice { get; private set; }
@@ -70,6 +71,21 @@ namespace PdaNext
         public void RequestDisconnect()
         {
             wantConnected = false;
+            if (KillSwitchFirewall.IsActive || State == BridgeState.Blocked)
+            {
+                KillSwitchFirewall.Remove(Emit);
+                BlockedReason = null;
+                SetState(BridgeState.Disconnected, "Not connected");
+            }
+            wake.Set();
+        }
+
+        public void RequestUnblock()
+        {
+            wantConnected = false;
+            KillSwitchFirewall.Remove(Emit);
+            BlockedReason = null;
+            SetState(BridgeState.Disconnected, "Unblocked: normal networking restored");
             wake.Set();
         }
 
@@ -81,6 +97,7 @@ namespace PdaNext
             disposed = true;
             wake.Set();
             worker.Join(8000);
+            KillSwitchFirewall.Remove(Emit);
             Teardown("app closed", BridgeState.Disconnected);
         }
 
@@ -111,8 +128,23 @@ namespace PdaNext
                 DevicesChanged?.Invoke(devices);
             }
 
+            if (State == BridgeState.Blocked)
+            {
+                if (wantConnected)
+                {
+                    var readyDevice = devices.FirstOrDefault(d => d.Ready && d.Serial == wantSerial) ?? devices.FirstOrDefault(d => d.Ready);
+                    if (readyDevice != null)
+                    {
+                        TryConnect(devices);
+                    }
+                }
+                return;
+            }
+
             if (!wantConnected)
             {
+                if (KillSwitchFirewall.IsActive) KillSwitchFirewall.Remove(Emit);
+                BlockedReason = null;
                 if (connected) Teardown("disconnected", BridgeState.Disconnected);
                 else if (State != BridgeState.Disconnected) SetState(BridgeState.Disconnected, "Not connected");
                 return;
@@ -171,6 +203,8 @@ namespace PdaNext
 
             if (!StartTunnel()) return;
 
+            KillSwitchFirewall.Remove(Emit);
+            BlockedReason = null;
             AppSettings.ActiveSession = "router";
             ActiveDevice = device;
             connected = true;
@@ -228,15 +262,34 @@ namespace PdaNext
         {
             if (tunnel != null && !tunnel.IsAlive)
             {
-                Teardown(tunnel.StopReason ?? "link stopped", BridgeState.Connecting);
+                string reason = tunnel.StopReason ?? "link stopped";
+                if (AppSettings.KillSwitch)
+                {
+                    BlockedReason = "Tunnel stopped (" + reason + ")";
+                    KillSwitchFirewall.Apply(Emit, Adb.ExePath);
+                    Teardown(reason, BridgeState.Blocked, keepFirewall: true, nextMessage: "Tunnel stopped (" + reason + "). Kill switch active - internet blocked to prevent fallback.");
+                }
+                else
+                {
+                    Teardown(reason, BridgeState.Connecting);
+                }
                 return;
             }
 
             if (!devices.Any(d => d.Serial == ActiveDevice.Serial && d.Ready))
             {
-                // Cable pulled: put the PC back on its normal network right away.
-                Teardown("phone unplugged", BridgeState.Waiting);
-                SetState(BridgeState.Waiting, "Phone unplugged. Normal networking restored; plug it back in to reconnect.");
+                if (AppSettings.KillSwitch)
+                {
+                    BlockedReason = "Phone unplugged";
+                    KillSwitchFirewall.Apply(Emit, Adb.ExePath);
+                    Teardown("phone unplugged", BridgeState.Blocked, keepFirewall: true, nextMessage: "Phone unplugged. Kill switch active - internet blocked to prevent fallback to Wi-Fi/Ethernet.");
+                }
+                else
+                {
+                    // Cable pulled: put the PC back on its normal network right away.
+                    Teardown("phone unplugged", BridgeState.Waiting);
+                    SetState(BridgeState.Waiting, "Phone unplugged. Normal networking restored; plug it back in to reconnect.");
+                }
                 return;
             }
 
@@ -256,12 +309,21 @@ namespace PdaNext
             }
             if (statusFailures >= 4)
             {
-                Teardown("phone app stopped answering", BridgeState.Waiting);
-                SetState(BridgeState.Waiting, "The phone app stopped. Open PdaNext on the phone and tap Start.");
+                if (AppSettings.KillSwitch)
+                {
+                    BlockedReason = "Phone app stopped";
+                    KillSwitchFirewall.Apply(Emit, Adb.ExePath);
+                    Teardown("phone app stopped answering", BridgeState.Blocked, keepFirewall: true, nextMessage: "The phone app stopped. Kill switch active - internet blocked to prevent fallback.");
+                }
+                else
+                {
+                    Teardown("phone app stopped answering", BridgeState.Waiting);
+                    SetState(BridgeState.Waiting, "The phone app stopped. Open PdaNext on the phone and tap Start.");
+                }
             }
         }
 
-        void Teardown(string reason, BridgeState next)
+        void Teardown(string reason, BridgeState next, bool keepFirewall = false, string nextMessage = null)
         {
             bool wasConnected = connected;
             connected = false;
@@ -272,17 +334,33 @@ namespace PdaNext
             }
             if (ActiveDevice != null) Adb.Run(ActiveDevice.Serial, "forward --remove tcp:" + port, 5000);
             AppSettings.ActiveSession = null;
+            if (!keepFirewall)
+            {
+                KillSwitchFirewall.Remove(Emit);
+                BlockedReason = null;
+            }
             if (wasConnected) Emit("Disconnected (" + reason + ")");
-            SetState(next, next == BridgeState.Disconnected ? "Not connected" : "Reconnecting…");
+            string defaultMsg = next == BridgeState.Disconnected ? "Not connected" : (next == BridgeState.Blocked ? "Kill switch active - internet blocked" : "Reconnecting…");
+            SetState(next, nextMessage ?? defaultMsg);
         }
 
         void RepairAfterCrash()
         {
             string stale = AppSettings.ActiveSession;
-            if (stale == null) return;
-            Emit("Previous session did not close cleanly; restoring network settings");
-            // The adapter itself vanished with the old process; the DNS rule did not.
-            try { NetConfig.Remove(Emit); } catch (Exception e) { Emit("DNS rule cleanup: " + e.Message); }
+            if (stale == null && !KillSwitchFirewall.IsActive) return;
+            if (AppSettings.KillSwitch)
+            {
+                Emit("Previous session did not close cleanly; kill switch is on, keeping internet blocked");
+                BlockedReason = "Previous session crashed";
+                KillSwitchFirewall.Apply(Emit, Adb.ExePath);
+                SetState(BridgeState.Blocked, "Previous session crashed. Kill switch active - internet blocked.");
+            }
+            else
+            {
+                Emit("Previous session did not close cleanly; restoring network settings");
+                KillSwitchFirewall.Remove(Emit);
+                try { NetConfig.Remove(Emit); } catch (Exception e) { Emit("DNS rule cleanup: " + e.Message); }
+            }
             AppSettings.ActiveSession = null;
         }
 
