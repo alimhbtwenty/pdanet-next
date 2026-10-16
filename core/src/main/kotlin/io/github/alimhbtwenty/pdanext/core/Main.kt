@@ -11,6 +11,7 @@ import java.io.IOException
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.net.UnknownHostException
 
 /**
  * Runs the relay on a desktop JVM, for testing without a phone:
@@ -28,7 +29,13 @@ fun main(args: Array<String>) {
                 return SocketStreamConnection(s)
             }
             override fun openUdp(dest: InetAddress, port: Int): DatagramFlow = throw IOException("tunnel udp not implemented")
-            override fun resolveDns(query: ByteArray): ByteArray? = MiniDns.answer(query) { arrayOf(InetAddress.getByName("203.0.113.20")) }
+            override fun resolveDns(query: ByteArray): ByteArray? = MiniDns.answer(query) { host ->
+                if (host.equals("foreign.test", ignoreCase = true)) {
+                    arrayOf(InetAddress.getByName("203.0.113.20"))
+                } else {
+                    throw UnknownHostException(host)
+                }
+            }
         }
     }
     val policy = if (tunnel != null) {

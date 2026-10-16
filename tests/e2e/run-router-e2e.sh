@@ -78,9 +78,6 @@ class H(http.server.SimpleHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0)); body = self.rfile.read(n)
         self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers()
         self.wfile.write(body)
-socketserver.ThreadingTCPServer.allow_reuse_address = True
-socketserver.ThreadingTCPServer.daemon_threads = True
-socketserver.ThreadingTCPServer(("203.0.113.10", 8000), H).serve_forever()
 def fake_tunnel():
     s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(("127.0.0.1", 8002)); s.listen()
@@ -90,6 +87,9 @@ def fake_tunnel():
         c.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nfrom-tunnel")
         c.close()
 threading.Thread(target=fake_tunnel, daemon=True).start()
+socketserver.ThreadingTCPServer.allow_reuse_address = True
+socketserver.ThreadingTCPServer.daemon_threads = True
+socketserver.ThreadingTCPServer(("203.0.113.10", 8000), H).serve_forever()
 PY
 SRV_PID=$!
 
