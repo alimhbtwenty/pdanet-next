@@ -80,10 +80,17 @@ Technical field notes: the `networking` skill.
   CI (`release.yml`) runs on every push, including the Linux e2e and the Windows build/tests.
   Claude subscribes to the PRs, reviews (run the tests, read the diff), comments on the PR, and merges
   the branches into the work branch when green. Never merge an agent branch unreviewed.
-- **State 2026-10-16:** done on the work branch: `BypassPolicy` + tests, ADR-0001, research docs,
-  agent rules. Agent branches `bypass-wiring`, `logging`, `kill-switch` (2026-10-16) all have real
-  defects, listed in `docs/reviews/antigravity/claude-triage-2026-10-16.md`; the agents were asked to
-  fix them through draft PRs. Merge order after fixes: bypass-wiring, logging, kill-switch. Next: the
+- **State 2026-10-16 (later):** the triage defects in `docs/reviews/antigravity/claude-triage-2026-10-16.md`
+  were fixed by Claude directly on the agent branches (PRs #7 #8 #9, all CI green, review comments on
+  each PR). The three were merged in order (bypass-wiring, logging, kill-switch) with conflicts resolved
+  on **`integrate/v3.1`** (= work branch + the three). Kill switch design after the fix: one outbound
+  block rule in group "PdaNext Kill Switch"; the group itself is the persisted state (queried on start);
+  the MSI removes it on uninstall. Pending owner approval: fast-forward the work branch to
+  `integrate/v3.1`, merge PR #6 (`fix/ping-pc-firewall`, 3.0.1) to `main`, close PR #5
+  (`preview/new-version`, based on v2.0.8, obsolete). After 3.0.1 is on `main`, merge `main` into the
+  work branch (VERSION and this file will conflict; take 3.0.1 and keep both handoff notes).
+  Merges need the owner's approval in this environment (the auto-mode guard blocks `gh pr merge`).
+  Sessions get confused when they start from `main`: this section exists only on the work branch. Next: the
   Xray Go bridge (gomobile AAR in CI, libXray MIT for links/latency), Android `XrayUpstream`, PC config UI,
   Iranian IP list generated in CI, then the VPN picker + scrcpy agent.
 - **Remote Control:** the laptop (`DESKTOP-RGERDBN`) can run `claude remote-control`
