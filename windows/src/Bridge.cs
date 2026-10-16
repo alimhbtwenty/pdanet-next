@@ -40,6 +40,7 @@ namespace PdaNext
         RouterTunnel tunnel;
         bool connected;
         int statusFailures;
+        readonly PhoneLogPoller poller = new PhoneLogPoller();
         string lastDeviceKey = "";
         DateTime lastAppLaunch = DateTime.MinValue;
         DateTime retryAfter = DateTime.MinValue;
@@ -212,6 +213,8 @@ namespace PdaNext
             connected = true;
             statusFailures = 0;
             StatusUpdated?.Invoke(status);
+            poller.Reset();
+            poller.Poll(port);
             SetState(BridgeState.Connected, "The whole PC is online through " + device.DisplayName + " (router " + tunnel.Hello.Gateway4 + ")");
         }
 
@@ -301,6 +304,7 @@ namespace PdaNext
                 LastStatus = status;
                 statusFailures = 0;
                 StatusUpdated?.Invoke(status);
+                poller.PollIfDue(port, 30);
                 return;
             }
 
@@ -330,6 +334,10 @@ namespace PdaNext
         {
             bool wasConnected = connected;
             connected = false;
+            if (wasConnected)
+            {
+                try { poller.Poll(port); } catch { }
+            }
             if (tunnel != null)
             {
                 try { tunnel.Dispose(); } catch (Exception e) { Emit("adapter cleanup: " + e.Message); }

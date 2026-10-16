@@ -16,10 +16,10 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import io.github.alimhbtwenty.pdanext.core.FailureFileLogger
 import io.github.alimhbtwenty.pdanext.core.LogLevel
 import io.github.alimhbtwenty.pdanext.core.LogSource
 import io.github.alimhbtwenty.pdanext.core.RelayServer
-import io.github.alimhbtwenty.pdanext.core.RotatingFileLogger
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -73,14 +73,14 @@ class RelayService : Service() {
         }
         if (relay?.isRunning == true) return START_STICKY
 
-        val rotatingLogger = RotatingFileLogger(File(filesDir, "logs"), maxBytes = 1024 * 1024, maxFiles = 2)
+        val failureLogger = FailureFileLogger(File(filesDir, "logs"))
         val server = RelayServer(
             port = RelayServer.DEFAULT_PORT,
             log = { Log.d(TAG, it) },
             statusExtras = { UplinkInfo.read(this).toStatus() + ("device" to "${Build.MANUFACTURER} ${Build.MODEL}") },
             routerPlatform = AndroidRouterPlatform(),
+            failureLogger = failureLogger,
         )
-        server.logBuffer.addListener { _, line -> rotatingLogger.append(line) }
         server.logBuffer.log(LogLevel.INFO, LogSource.SERVICE, "Relay service starting")
         relay = server
         current = server
@@ -89,6 +89,7 @@ class RelayService : Service() {
                 server.start()
             } catch (e: Exception) {
                 Log.e(TAG, "relay failed to start", e)
+                server.logBuffer.log(LogLevel.ERROR, LogSource.SERVICE, "relay failed to start on port ${RelayServer.DEFAULT_PORT}: ${e.message}")
                 _state.value = State(error = "Port ${RelayServer.DEFAULT_PORT} is busy: ${e.message}")
                 stopSelf()
                 return@launch

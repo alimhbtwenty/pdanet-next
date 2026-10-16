@@ -99,7 +99,7 @@ namespace PdaNext
         bool pinging;
         TextBox txtLog;
         LinkLabel lnkLog;
-        Button btnSaveDiag;
+        Button btnSaveDiag, btnClearLogs;
         ToolStripMenuItem trayConnect, trayStatus, trayUnblock;
 
         Card vpnCard;
@@ -355,6 +355,22 @@ namespace PdaNext
             };
             lnkLog.LinkClicked += (s, e) => ToggleLog();
             Controls.Add(lnkLog);
+
+            btnClearLogs = new Button
+            {
+                Text = "Clear logs",
+                Location = new Point(x + w - 130 - 100 - 8, y),
+                Size = new Size(100, 26),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Theme.Card,
+                ForeColor = Theme.Text,
+                Font = Theme.UI(8.5f),
+                Cursor = Cursors.Hand,
+            };
+            btnClearLogs.FlatAppearance.BorderSize = 1;
+            btnClearLogs.FlatAppearance.BorderColor = Theme.Stroke;
+            btnClearLogs.Click += (s, e) => ClearLogsClicked();
+            Controls.Add(btnClearLogs);
 
             btnSaveDiag = new Button
             {
@@ -706,6 +722,28 @@ namespace PdaNext
                     btnSaveDiag.Text = prevText;
                 }
             }
+        }
+
+        void ClearLogsClicked()
+        {
+            var confirm = MessageBox.Show(
+                this,
+                "Are you sure you want to delete all log files?",
+                "Clear logs",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question
+            );
+            if (confirm != DialogResult.Yes) return;
+
+            int deleted = FileLogger.ClearLogs(FileLogger.LogDirectory);
+            if (txtLog != null && txtLog.Visible) txtLog.Text = "";
+            MessageBox.Show(
+                this,
+                $"Deleted {deleted} log file(s).",
+                "Clear logs",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information
+            );
         }
 
         void AppendLog(string line)

@@ -91,18 +91,78 @@ Test("secret redactor: credentials in url and passwords stripped", () =>
     if (redacted.Contains("pass123")) throw new Exception("Password param was not stripped");
 });
 
-Test("file logger: cleans old logs older than retention period", () =>
+Test("file logger: no deletion by FileLogger", () =>
 {
     string tempDir = Path.Combine(Path.GetTempPath(), "pdanext-test-logs-" + Guid.NewGuid().ToString("N"));
     try
     {
         Directory.CreateDirectory(tempDir);
         string oldFile = Path.Combine(tempDir, "pdanext-20200101.log");
-        File.WriteAllText(oldFile, "old logs");
-        File.SetLastWriteTimeUtc(oldFile, DateTime.UtcNow.AddDays(-10));
+        File.WriteAllText(oldFile, "old logs that must never be deleted");
+        File.SetLastWriteTimeUtc(oldFile, DateTime.UtcNow.AddDays(-30));
 
-        FileLogger.CleanOldLogs(tempDir);
-        if (File.Exists(oldFile)) throw new Exception("Old log file was not cleaned");
+        // FileLogger never deletes old files
+        if (!File.Exists(oldFile)) throw new Exception("Old log file should never be deleted");
+    }
+    finally
+    {
+        if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+    }
+});
+
+Test("phone log poller: since and restart logic", () =>
+{
+    // Normal progression: responseSeq >= currentSeq
+    Equal(10L, PhoneLogPoller.ComputeNextSequence(0L, 10L), "normal progression from 0");
+    Equal(false, PhoneLogPoller.IsRestart(0L, 10L), "not restart");
+
+    Equal(25L, PhoneLogPoller.ComputeNextSequence(10L, 25L), "normal progression");
+    Equal(false, PhoneLogPoller.IsRestart(10L, 25L), "not restart");
+
+    Equal(25L, PhoneLogPoller.ComputeNextSequence(25L, 25L), "same seq when no new logs");
+    Equal(false, PhoneLogPoller.IsRestart(25L, 25L), "not restart");
+
+    // Phone restarted: sequence went backwards (responseSeq < currentSeq)
+    Equal(0L, PhoneLogPoller.ComputeNextSequence(100L, 5L), "sequence went backwards resets to 0");
+    Equal(true, PhoneLogPoller.IsRestart(100L, 5L), "restart detected");
+});
+
+Test("clear logs: deletes only *.log in the given folder", () =>
+{
+    string tempDir = Path.Combine(Path.GetTempPath(), "pdanext-clear-logs-" + Guid.NewGuid().ToString("N"));
+    try
+    {
+        Directory.CreateDirectory(tempDir);
+        string pcLog = Path.Combine(tempDir, "pdanext-20261016.log");
+        string pcPart = Path.Combine(tempDir, "pdanext-20261016.1.log");
+        string phoneLog = Path.Combine(tempDir, "phone-20261016.log");
+        string phoneFailures = Path.Combine(tempDir, "phone-failures.log");
+        string otherTxt = Path.Combine(tempDir, "important.txt");
+        string archiveZip = Path.Combine(tempDir, "diag.zip");
+        string lockedLog = Path.Combine(tempDir, "active.log");
+
+        File.WriteAllText(pcLog, "pc log");
+        File.WriteAllText(pcPart, "pc log part 1");
+        File.WriteAllText(phoneLog, "phone log");
+        File.WriteAllText(phoneFailures, "phone failures");
+        File.WriteAllText(otherTxt, "do not delete text file");
+        File.WriteAllText(archiveZip, "do not delete zip file");
+
+        // Keep locked.log open with exclusive lock
+        int deleted;
+        using (var stream = new FileStream(lockedLog, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
+        {
+            deleted = FileLogger.ClearLogs(tempDir);
+        }
+
+        Equal(4, deleted, "deleted count should be 4 (pcLog, pcPart, phoneLog, phoneFailures)");
+        Equal(false, File.Exists(pcLog), "pcLog should be deleted");
+        Equal(false, File.Exists(pcPart), "pcPart should be deleted");
+        Equal(false, File.Exists(phoneLog), "phoneLog should be deleted");
+        Equal(false, File.Exists(phoneFailures), "phoneFailures should be deleted");
+        Equal(true, File.Exists(otherTxt), "important.txt must NOT be deleted");
+        Equal(true, File.Exists(archiveZip), "diag.zip must NOT be deleted");
+        Equal(true, File.Exists(lockedLog), "locked.log was in use and must NOT be deleted");
     }
     finally
     {

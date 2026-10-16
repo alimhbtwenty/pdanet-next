@@ -8,8 +8,6 @@ namespace PdaNext
     {
         static readonly object sync = new object();
         const long MaxSizeBytes = 2 * 1024 * 1024; // 2 MB
-        const int RetentionDays = 7;
-        static DateTime lastClean = DateTime.MinValue;
 
         public static string LogDirectory => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -27,12 +25,6 @@ namespace PdaNext
                 {
                     string dir = LogDirectory;
                     if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
-
-                    if (DateTime.UtcNow - lastClean > TimeSpan.FromHours(1))
-                    {
-                        lastClean = DateTime.UtcNow;
-                        CleanOldLogs(dir);
-                    }
 
                     string today = DateTime.UtcNow.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
                     string targetFile = GetCurrentLogFile(dir, today);
@@ -84,42 +76,31 @@ namespace PdaNext
             return Path.Combine(dir, "pdanext-" + dateStr + "." + part + ".log");
         }
 
-        public static void CleanOldLogs(string dir)
+        public static int ClearLogs(string dir)
         {
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return 0;
+            int deleted = 0;
             try
             {
-                var files = Directory.GetFiles(dir, "pdanext-*.log");
-                DateTime cutoff = DateTime.UtcNow.Date.AddDays(-RetentionDays);
-
+                var files = Directory.GetFiles(dir);
                 foreach (var file in files)
                 {
-                    var info = new FileInfo(file);
-                    // Extract date from pdanext-YYYYMMDD
-                    string name = Path.GetFileNameWithoutExtension(info.Name);
-                    // Handle .1, .2 extensions if present
-                    if (name.Contains(".")) name = name.Substring(0, name.IndexOf('.'));
-                    if (name.StartsWith("pdanext-") && name.Length >= 16)
-                    {
-                        string datePart = name.Substring(8, 8);
-                        if (DateTime.TryParseExact(datePart, "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var fileDate))
-                        {
-                            if (fileDate < cutoff)
-                            {
-                                File.Delete(file);
-                                continue;
-                            }
-                        }
-                    }
-
-                    if (info.LastWriteTimeUtc < cutoff)
+                    if (!file.EndsWith(".log", StringComparison.OrdinalIgnoreCase)) continue;
+                    try
                     {
                         File.Delete(file);
+                        deleted++;
+                    }
+                    catch
+                    {
+                        // File is in use: skip
                     }
                 }
             }
             catch
             {
             }
+            return deleted;
         }
     }
 }
