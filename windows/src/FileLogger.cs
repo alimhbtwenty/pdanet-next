@@ -9,6 +9,7 @@ namespace PdaNext
         static readonly object sync = new object();
         const long MaxSizeBytes = 2 * 1024 * 1024; // 2 MB
         const int RetentionDays = 7;
+        static DateTime lastClean = DateTime.MinValue;
 
         public static string LogDirectory => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -27,7 +28,11 @@ namespace PdaNext
                     string dir = LogDirectory;
                     if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
-                    CleanOldLogs(dir);
+                    if (DateTime.UtcNow - lastClean > TimeSpan.FromHours(1))
+                    {
+                        lastClean = DateTime.UtcNow;
+                        CleanOldLogs(dir);
+                    }
 
                     string today = DateTime.UtcNow.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
                     string targetFile = GetCurrentLogFile(dir, today);

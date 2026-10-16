@@ -104,6 +104,7 @@ namespace PdaNext
             try
             {
                 var req = (HttpWebRequest)WebRequest.Create(url);
+                req.Proxy = null; // the system proxy may point at this very port (see PhoneStatus.Fetch)
                 req.Timeout = timeoutMs;
                 req.ReadWriteTimeout = timeoutMs;
                 using (var resp = req.GetResponse())
