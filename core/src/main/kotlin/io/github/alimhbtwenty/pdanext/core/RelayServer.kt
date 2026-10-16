@@ -454,7 +454,7 @@ class RelayServer(
 
     companion object {
         const val DEFAULT_PORT = 28080
-        const val VERSION = "3.0.0"
+        const val VERSION = "3.1.0"
         const val HANDSHAKE_TIMEOUT_MS = 15_000
 
         fun closeQuietly(c: java.io.Closeable?) {
