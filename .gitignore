@@ -6,3 +6,6 @@ local.properties
 .kotlin/
 windows/out/
 .worktrees/
+
+# Xray bridge AAR, built by CI from xraybridge/
+android/app/libs/

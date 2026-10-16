@@ -77,8 +77,13 @@ class RelayService : Service() {
         val server = RelayServer(
             port = RelayServer.DEFAULT_PORT,
             log = { Log.d(TAG, it) },
-            statusExtras = { UplinkInfo.read(this).toStatus() + ("device" to "${Build.MANUFACTURER} ${Build.MODEL}") },
+            statusExtras = {
+                UplinkInfo.read(this).toStatus() + ("device" to "${Build.MANUFACTURER} ${Build.MODEL}") +
+                    ("xrayRunning" to xrayEngine.isRunning)
+            },
             routerPlatform = AndroidRouterPlatform(),
+            // A selected Xray config carries Route.TUNNEL flows; none selected = everything direct.
+            tunnelProvider = { xrayEngine.tunnel.takeIf { xrayEngine.isSelected } },
         )
         server.logBuffer.addListener { _, line -> rotatingLogger.append(line) }
         server.logBuffer.log(LogLevel.INFO, LogSource.SERVICE, "Relay service starting")
@@ -143,6 +148,7 @@ class RelayService : Service() {
         relay?.logBuffer?.log(LogLevel.INFO, LogSource.SERVICE, "Relay service stopping")
         scope.cancel()
         relay?.stop()
+        runCatching { xrayEngine.stop() }
         relay = null
         current = null
         runCatching { wakeLock?.takeIf { it.isHeld }?.release() }
@@ -183,6 +189,9 @@ class RelayService : Service() {
         const val ACTION_STOP = "io.github.alimhbtwenty.pdanext.STOP"
 
         @Volatile private var current: RelayServer? = null
+
+        /** The embedded Xray engine (one per process, like the Go instance behind it). */
+        val xrayEngine = XrayEngineImpl()
 
         /** Router mode: ICMP ping from the phone to the PC; milliseconds, or null. Blocking. */
         fun pingPc(): Long? = current?.activeRouter?.pingClient()
