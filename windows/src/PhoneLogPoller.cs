@@ -6,13 +6,28 @@ using System.Text;
 
 namespace PdaNext
 {
+    /// <summary>
+    /// Copies the phone's log to the PC: new lines of GET /log go to phone-YYYYMMDD.log, and the
+    /// phone's failure file (GET /log/failures) to phone-failures.log. The phone's boot id and the
+    /// last sequence are kept in a state file next to the logs, so reconnecting or restarting the PC
+    /// app never saves a line twice; a new boot id (the phone app restarted) starts again from 0.
+    /// </summary>
     public class PhoneLogPoller
     {
         private long currentSeq = 0L;
+        private string bootId;
+        private bool stateLoaded;
         private DateTime lastPollTime = DateTime.MinValue;
         private readonly object sync = new object();
+        private readonly string stateFile;
+
+        public PhoneLogPoller(string stateFile = null)
+        {
+            this.stateFile = stateFile ?? Path.Combine(FileLogger.LogDirectory, "phone-log-state.txt");
+        }
 
         public long CurrentSeq => currentSeq;
+        public string BootId => bootId;
         public DateTime LastPollTime => lastPollTime;
 
         public void Reset()
@@ -43,6 +58,16 @@ namespace PdaNext
             return responseSeq < currentSeq;
         }
 
+        /// <summary>
+        /// True when the answer belongs to another phone boot than the stored one (or the sequence
+        /// went backwards): the body is not what was asked for, fetch again from 0.
+        /// </summary>
+        public static bool NeedsRestart(string storedBoot, long storedSeq, string responseBoot, long responseSeq)
+        {
+            if (!string.IsNullOrEmpty(responseBoot) && responseBoot != storedBoot) return true;
+            return IsRestart(storedSeq, responseSeq);
+        }
+
         public void PollIfDue(int port, int intervalSeconds = 30)
         {
             if (DateTime.UtcNow - lastPollTime >= TimeSpan.FromSeconds(intervalSeconds))
@@ -51,15 +76,20 @@ namespace PdaNext
             }
         }
 
-        public void Poll(int port)
+        /// <summary>
+        /// Saves new phone log lines. The failure file only grows (it is never deleted), so it is
+        /// copied only when asked (on connect and disconnect), not on every periodic poll.
+        /// </summary>
+        public void Poll(int port, bool includeFailures = false)
         {
             lock (sync)
             {
                 lastPollTime = DateTime.UtcNow;
                 try
                 {
-                    PollLogs(port);
-                    PollFailures(port);
+                    LoadState();
+                    PollLogs(port, allowRestart: true);
+                    if (includeFailures) PollFailures(port);
                 }
                 catch
                 {
@@ -68,7 +98,39 @@ namespace PdaNext
             }
         }
 
-        void PollLogs(int port)
+        void LoadState()
+        {
+            if (stateLoaded) return;
+            stateLoaded = true;
+            try
+            {
+                if (!File.Exists(stateFile)) return;
+                var parts = File.ReadAllText(stateFile).Trim().Split(' ');
+                if (parts.Length == 2 && long.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out long seq))
+                {
+                    bootId = parts[0];
+                    currentSeq = seq;
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        void SaveState()
+        {
+            try
+            {
+                string dir = Path.GetDirectoryName(stateFile);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                File.WriteAllText(stateFile, (bootId ?? "-") + " " + currentSeq.ToString(CultureInfo.InvariantCulture));
+            }
+            catch
+            {
+            }
+        }
+
+        void PollLogs(int port, bool allowRestart)
         {
             string url = "http://127.0.0.1:" + port + "/log?since=" + currentSeq;
             var req = (HttpWebRequest)WebRequest.Create(url);
@@ -78,6 +140,7 @@ namespace PdaNext
 
             string body = null;
             long? responseSeq = null;
+            string responseBoot = null;
 
             try
             {
@@ -88,6 +151,7 @@ namespace PdaNext
                     {
                         responseSeq = seq;
                     }
+                    responseBoot = resp.Headers["X-Log-Boot"];
                     using (var stream = resp.GetResponseStream())
                     using (var reader = new StreamReader(stream, Encoding.UTF8))
                     {
@@ -102,11 +166,12 @@ namespace PdaNext
 
             if (responseSeq.HasValue)
             {
-                if (IsRestart(currentSeq, responseSeq.Value))
+                if (allowRestart && NeedsRestart(bootId, currentSeq, responseBoot, responseSeq.Value))
                 {
-                    // Phone restarted: sequence went backwards, start again from 0
+                    // Another phone boot: what we asked for does not exist there, start again from 0.
+                    if (!string.IsNullOrEmpty(responseBoot)) bootId = responseBoot;
                     currentSeq = 0L;
-                    PollLogs(port);
+                    PollLogs(port, allowRestart: false);
                     return;
                 }
                 currentSeq = responseSeq.Value;
@@ -117,6 +182,7 @@ namespace PdaNext
                 string redacted = SecretRedactor.Redact(body);
                 SavePhoneLog(redacted);
             }
+            SaveState();
         }
 
         void SavePhoneLog(string text)

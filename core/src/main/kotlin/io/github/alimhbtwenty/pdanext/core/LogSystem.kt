@@ -43,6 +43,9 @@ object SecretRedactor {
 }
 
 class LogRingBuffer(val capacity: Int = 2000) {
+    /** Changes every time the relay starts, so the PC can tell a restarted phone from a reconnect. */
+    val bootId: String = java.lang.Long.toHexString(System.currentTimeMillis()) + "-" +
+        java.lang.Long.toHexString(java.util.concurrent.ThreadLocalRandom.current().nextLong() ushr 16)
     private val sequenceCounter = java.util.concurrent.atomic.AtomicLong(0L)
     private val entries = ArrayDeque<LogEntry>(capacity)
     private val listeners = CopyOnWriteArrayList<(LogEntry, String) -> Unit>()

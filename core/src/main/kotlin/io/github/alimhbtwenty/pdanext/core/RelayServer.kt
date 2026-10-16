@@ -173,12 +173,15 @@ class RelayServer(
                 return
             }
             val since = parseQueryParam(fullTarget, "since")?.toLongOrNull()
-            val text = logBuffer.dumpText(since)
+            // Text and sequence come from the same snapshot, so a line logged meanwhile is not skipped.
+            val entries = logBuffer.dump(since)
+            val text = entries.joinToString("") { it.format() + "\n" }
             val bytes = text.toByteArray(Charsets.UTF_8)
-            val lastSeq = logBuffer.lastSequence()
+            val lastSeq = entries.lastOrNull()?.sequence ?: (since ?: 0L)
             output.write(
                 ("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\n" +
                     "X-Log-Seq: $lastSeq\r\n" +
+                    "X-Log-Boot: ${logBuffer.bootId}\r\n" +
                     "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n").toByteArray()
             )
             output.write(bytes)

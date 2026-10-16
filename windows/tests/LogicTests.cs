@@ -127,6 +127,21 @@ Test("phone log poller: since and restart logic", () =>
     Equal(true, PhoneLogPoller.IsRestart(100L, 5L), "restart detected");
 });
 
+Test("phone log poller: a reconnect continues, a new phone boot starts again", () =>
+{
+    // Same boot (cable replugged, PC app restarted): continue from the stored sequence.
+    Equal(false, PhoneLogPoller.NeedsRestart("b1", 40L, "b1", 40L), "same boot, nothing new");
+    Equal(false, PhoneLogPoller.NeedsRestart("b1", 40L, "b1", 55L), "same boot, new lines");
+    // Phone app restarted: another boot id, even if its counter is already past the stored one.
+    Equal(true, PhoneLogPoller.NeedsRestart("b1", 40L, "b2", 40L), "new boot, same number");
+    Equal(true, PhoneLogPoller.NeedsRestart("b1", 40L, "b2", 900L), "new boot, larger number");
+    // First poll ever (no stored boot) also starts from 0 for that boot.
+    Equal(true, PhoneLogPoller.NeedsRestart(null, 0L, "b1", 7L), "first poll");
+    // An old phone without the boot header: fall back to the sequence check.
+    Equal(false, PhoneLogPoller.NeedsRestart("b1", 40L, null, 41L), "no header, forward");
+    Equal(true, PhoneLogPoller.NeedsRestart("b1", 40L, null, 3L), "no header, backwards");
+});
+
 Test("clear logs: deletes only *.log in the given folder", () =>
 {
     string tempDir = Path.Combine(Path.GetTempPath(), "pdanext-clear-logs-" + Guid.NewGuid().ToString("N"));

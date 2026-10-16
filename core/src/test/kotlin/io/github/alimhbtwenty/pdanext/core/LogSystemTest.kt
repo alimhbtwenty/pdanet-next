@@ -207,6 +207,7 @@ class LogSystemTest {
                     if (parts.size == 2) headers[parts[0].trim().lowercase()] = parts[1].trim()
                 }
                 assertEquals(e2.sequence.toString(), headers["x-log-seq"])
+                assertEquals(server.logBuffer.bootId, headers["x-log-boot"])
                 val body = reader.readText()
                 assertTrue(body.contains("entry-one"))
                 assertTrue(body.contains("entry-two"))

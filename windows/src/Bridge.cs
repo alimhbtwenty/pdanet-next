@@ -213,8 +213,7 @@ namespace PdaNext
             connected = true;
             statusFailures = 0;
             StatusUpdated?.Invoke(status);
-            poller.Reset();
-            poller.Poll(port);
+            poller.Poll(port, includeFailures: true);
             SetState(BridgeState.Connected, "The whole PC is online through " + device.DisplayName + " (router " + tunnel.Hello.Gateway4 + ")");
         }
 
@@ -336,7 +335,7 @@ namespace PdaNext
             connected = false;
             if (wasConnected)
             {
-                try { poller.Poll(port); } catch { }
+                try { poller.Poll(port, includeFailures: true); } catch { }
             }
             if (tunnel != null)
             {
