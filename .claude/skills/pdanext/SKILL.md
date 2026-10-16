@@ -30,7 +30,7 @@ Technical field notes: the `networking` skill.
 - `alimhbtwenty/whatsapp-attendance-bot`: unrelated PWA. Branch `ccr-bd34aa07-k9vhv4` there holds 50
   third-party "antigravity" skills under `.claude/skills` (unmerged; owner said they are not
   repo-specific). The skills zip came from the owner; it was scanned and looked benign.
-- **First real-device test passed (2026-10-16)**, owner's Xiaomi M2007J3SY (Mi 10T) + Windows 11,
+- **Real-device check passed (2026-10-16; an earlier pass is on branch `ccr-08d85fc4-xlj0kf`)**, owner's Xiaomi M2007J3SY (Mi 10T) + Windows 11,
   run from a local Claude Code session on that PC (adb, gh, PdaNext installed; no .NET SDK there,
   shell not elevated). PC exit IP = phone VPN IP, no IPv6 leak, DNS/UDP/ping fine, PC throughput =
   the phone's own (VPN-bound). Only bug: phone->PC ping blocked by the Public firewall profile,
