@@ -1,5 +1,7 @@
 package io.github.alimhbtwenty.pdanext.core.router
 
+import io.github.alimhbtwenty.pdanext.core.LogLevel
+import io.github.alimhbtwenty.pdanext.core.LogSource
 import io.github.alimhbtwenty.pdanext.core.RelayServer
 import java.io.BufferedOutputStream
 import java.io.DataInputStream
@@ -66,11 +68,13 @@ class RouterLink(
             stats = relay.stats,
             platform = platform,
             log = { relay.log("router: $it") },
+            logger = { lvl, src, msg -> relay.log(lvl, src, msg) },
         )
         relay.attachRouter(this)
-        relay.log("PC connected in router mode")
+        relay.log(LogLevel.INFO, LogSource.LINK, "PC connected in router mode")
         val writer = Thread(::writeLoop, "router-link-writer").apply { isDaemon = true; start() }
         val buf = ByteArray(65535)
+        var disconnectReason = "link closed normally"
         try {
             while (!closed) {
                 val len = input.readUnsignedShort()
@@ -79,11 +83,14 @@ class RouterLink(
                 router.onPacket(buf, len)
             }
         } catch (_: EOFException) {
+            disconnectReason = "EOF / connection closed by PC"
+        } catch (e: Exception) {
+            disconnectReason = "${e.javaClass.simpleName}: ${e.message}"
         } finally {
             close()
             writer.interrupt()
             relay.detachRouter(this)
-            relay.log("PC disconnected from router mode")
+            relay.log(LogLevel.INFO, LogSource.LINK, "PC disconnected from router mode: $disconnectReason")
         }
     }
 
@@ -107,6 +114,7 @@ class RouterLink(
             }
         } catch (_: InterruptedException) {
         } catch (e: IOException) {
+            relay.log(LogLevel.WARN, LogSource.LINK, "Router link write / keep-alive failed: ${e.message}")
             close()
         }
     }

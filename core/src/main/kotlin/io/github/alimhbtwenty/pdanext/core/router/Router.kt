@@ -1,5 +1,7 @@
 package io.github.alimhbtwenty.pdanext.core.router
 
+import io.github.alimhbtwenty.pdanext.core.LogLevel
+import io.github.alimhbtwenty.pdanext.core.LogSource
 import io.github.alimhbtwenty.pdanext.core.RelayStats
 import java.net.Inet4Address
 import java.net.InetAddress
@@ -59,6 +61,7 @@ class Router(
     private val platform: RouterPlatform? = (direct as? DirectUpstream)?.platform,
     private val log: (String) -> Unit = {},
     private val clock: () -> Long = System::currentTimeMillis,
+    private val logger: ((LogLevel, LogSource, String) -> Unit)? = null,
 ) {
     constructor(
         config: RouterConfig,
@@ -98,6 +101,11 @@ class Router(
         return if (route == Route.DIRECT || tunnel == null) direct else tunnel
     }
 
+    internal fun log(level: LogLevel, source: LogSource, message: String) {
+        if (logger != null) logger.invoke(level, source, message)
+        else log("[${source.tag}] $message")
+    }
+
     fun onPacket(buf: ByteArray, length: Int) {
         if (closed) return
         val p = IpPacket.parse(buf, length) ?: return
@@ -134,7 +142,7 @@ class Router(
                         MiniDns.noData(query)
                     } else {
                         val tun = tunnel
-                        if (isDomestic || tun == null) {
+                        val resolved = if (isDomestic || tun == null) {
                             val resp = runCatching { direct.resolveDns(query) }.getOrNull()
                             if (resp != null && isDomestic) {
                                 val answers = MiniDns.parseAnswers(resp)
@@ -142,9 +150,13 @@ class Router(
                                     policy.learn(listOf(ans.address), ans.ttlSeconds, clock())
                                 }
                             }
-                            resp ?: MiniDns.serverFailure(query)
+                            resp
                         } else {
-                            runCatching { tun.resolveDns(query) }.getOrNull() ?: MiniDns.serverFailure(query)
+                            runCatching { tun.resolveDns(query) }.getOrNull()
+                        }
+                        resolved ?: run {
+                            log(LogLevel.WARN, LogSource.DNS, "DNS query failed for ${question?.name ?: "unknown"} (type $type)")
+                            MiniDns.serverFailure(query)
                         }
                     }
                     if (answer != null) send(PacketBuilder.udp(gateway, 53, pc, pcPort, answer, 0, answer.size))
@@ -204,7 +216,10 @@ class Router(
                 val datagram = upstream.openUdp(p.dst, p.dstPort)
                 UdpFlow(this, key, datagram)
             } catch (e: Exception) {
-                log("udp $key: ${e.message}")
+                val fails = stats.failedConnections.incrementAndGet()
+                if (fails <= 5 || fails % 10L == 0L) {
+                    log(LogLevel.WARN, LogSource.ROUTER, "UDP flow for $key failed: ${e.message} (total failed flows: $fails)")
+                }
                 send(PacketBuilder.unreachable(gatewayFor(p), p))
                 return
             }

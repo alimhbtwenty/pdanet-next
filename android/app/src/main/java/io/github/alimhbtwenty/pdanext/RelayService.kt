@@ -16,7 +16,11 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import io.github.alimhbtwenty.pdanext.core.LogLevel
+import io.github.alimhbtwenty.pdanext.core.LogSource
 import io.github.alimhbtwenty.pdanext.core.RelayServer
+import io.github.alimhbtwenty.pdanext.core.RotatingFileLogger
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -69,12 +73,15 @@ class RelayService : Service() {
         }
         if (relay?.isRunning == true) return START_STICKY
 
+        val rotatingLogger = RotatingFileLogger(File(filesDir, "logs"), maxBytes = 1024 * 1024, maxFiles = 2)
         val server = RelayServer(
             port = RelayServer.DEFAULT_PORT,
             log = { Log.d(TAG, it) },
             statusExtras = { UplinkInfo.read(this).toStatus() + ("device" to "${Build.MANUFACTURER} ${Build.MODEL}") },
             routerPlatform = AndroidRouterPlatform(),
         )
+        server.logBuffer.addListener { _, line -> rotatingLogger.append(line) }
+        server.logBuffer.log(LogLevel.INFO, LogSource.SERVICE, "Relay service starting")
         relay = server
         current = server
         scope.launch(Dispatchers.IO) {
@@ -133,6 +140,7 @@ class RelayService : Service() {
     }
 
     override fun onDestroy() {
+        relay?.logBuffer?.log(LogLevel.INFO, LogSource.SERVICE, "Relay service stopping")
         scope.cancel()
         relay?.stop()
         relay = null

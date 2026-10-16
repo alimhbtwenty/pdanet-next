@@ -20,6 +20,8 @@ namespace PdaNext
         public long BytesDown;
         public long ActiveTcp;
         public long ActiveUdp;
+        /// <summary>The /status body as received, for the diagnostics export.</summary>
+        public string RawJson;
 
         public string UplinkDisplay
         {
@@ -76,6 +78,7 @@ namespace PdaNext
                 BytesDown = FlatJson.Long(f, "bytesDown"),
                 ActiveTcp = FlatJson.Long(f, "activeTcp"),
                 ActiveUdp = FlatJson.Long(f, "activeUdp"),
+                RawJson = json,
             };
         }
     }
