@@ -77,13 +77,13 @@ namespace PdaNext
         /// Ensures only one scrcpy window is open at a time; any existing instance is terminated.
         /// Explicitly passes the ADB environment variable pointing to PdaNext's own bin\adb.exe.
         /// </summary>
-        public static Process Start(string serial, string package = null, string appLabel = null)
+        public static Process Start(string serial, string package = null, string appLabel = null, bool? hardwareInput = null)
         {
             lock (sync)
             {
                 StopInternal();
 
-                string args = BuildArguments(serial, package, appLabel, uhidInput: InputInjectionBlocked(serial));
+                string args = BuildArguments(serial, package, appLabel, uhidInput: hardwareInput ?? NeedsHardwareInput(serial));
                 var psi = new ProcessStartInfo(ExePath, args)
                 {
                     UseShellExecute = false,
@@ -125,7 +125,7 @@ namespace PdaNext
         /// which needs a SIM card to enable): scrcpy would only show the screen. Sends KEYCODE_UNKNOWN,
         /// which does nothing.
         /// </summary>
-        static bool InputInjectionBlocked(string serial)
+        public static bool NeedsHardwareInput(string serial)
         {
             try
             {

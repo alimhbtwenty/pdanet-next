@@ -282,14 +282,7 @@ namespace PdaNext
                 Cursor = Cursors.Hand,
             };
             btnPhoneScreen.FlatAppearance.BorderSize = 0;
-            btnPhoneScreen.Click += (s, e) =>
-            {
-                try { Scrcpy.Start(SelectedSerial); }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Could not start scrcpy: " + ex.Message, "PdaNext", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                }
-            };
+            btnPhoneScreen.Click += (s, e) => StartPhoneScreen();
             vpnCard.Controls.Add(btnPhoneScreen);
 
             lblVpnNote = MakeLabel("Starting another VPN stops the current one", Theme.UI(8.5f), Theme.Muted, 18, 38, w - 80);
@@ -656,17 +649,7 @@ namespace PdaNext
                 btnOpen.FlatAppearance.BorderSize = 0;
                 string pkg = app.Package;
                 string label = app.DisplayName;
-                btnOpen.Click += (s, e) =>
-                {
-                    try
-                    {
-                        Scrcpy.Start(SelectedSerial, pkg, label);
-                    }
-                    catch (Exception ex)
-                    {
-                        MessageBox.Show("Could not start scrcpy: " + ex.Message, "PdaNext", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    }
-                };
+                btnOpen.Click += (s, e) => StartPhoneScreen(pkg, label);
                 row.Controls.Add(btnOpen);
 
                 pnlVpnList.Controls.Add(row);
@@ -705,6 +688,41 @@ namespace PdaNext
                 }
             }
             catch { return "—"; }
+        }
+
+        bool hardwareInputHintShown;
+
+        /// <summary>
+        /// Opens the phone's screen (optionally one app). Phones that refuse injected input (Xiaomi
+        /// without a SIM card) get scrcpy's hardware keyboard and mouse, which take over the PC's mouse
+        /// and keyboard inside the window: say so before the first window opens.
+        /// </summary>
+        void StartPhoneScreen(string package = null, string label = null)
+        {
+            try
+            {
+                string serial = SelectedSerial;
+                bool hardware = Scrcpy.NeedsHardwareInput(serial);
+                if (hardware && !hardwareInputHintShown)
+                {
+                    var answer = MessageBox.Show(this,
+                        "This phone only accepts a hardware keyboard and mouse from the PC.
+
+" +
+                        "Click inside the phone window to control the phone: your mouse and keyboard then work on the phone.
+
+" +
+                        "Press the left Alt key to get your mouse and keyboard back on Windows.",
+                        "Phone screen", MessageBoxButtons.OKCancel, MessageBoxIcon.Information);
+                    if (answer != DialogResult.OK) return;
+                    hardwareInputHintShown = true;
+                }
+                Scrcpy.Start(serial, package, label, hardware);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Could not start scrcpy: " + ex.Message, "PdaNext", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
         }
 
         void OpenServers()
