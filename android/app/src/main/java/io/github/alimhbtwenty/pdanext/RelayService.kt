@@ -20,6 +20,8 @@ import io.github.alimhbtwenty.pdanext.core.LogLevel
 import io.github.alimhbtwenty.pdanext.core.LogSource
 import io.github.alimhbtwenty.pdanext.core.RelayServer
 import io.github.alimhbtwenty.pdanext.core.RotatingFileLogger
+import io.github.alimhbtwenty.pdanext.core.router.BypassPolicy
+import io.github.alimhbtwenty.pdanext.core.router.Ipv4Ranges
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -74,14 +76,22 @@ class RelayService : Service() {
         if (relay?.isRunning == true) return START_STICKY
 
         val rotatingLogger = RotatingFileLogger(File(filesDir, "logs"), maxBytes = 1024 * 1024, maxFiles = 2)
+        val iranRanges = loadIranRanges()
+        val bypassPolicy = BypassPolicy(ranges = iranRanges)
         val server = RelayServer(
             port = RelayServer.DEFAULT_PORT,
             log = { Log.d(TAG, it) },
-            statusExtras = { UplinkInfo.read(this).toStatus() + ("device" to "${Build.MANUFACTURER} ${Build.MODEL}") },
+            statusExtras = {
+                UplinkInfo.read(this).toStatus() + mapOf(
+                    "device" to "${Build.MANUFACTURER} ${Build.MODEL}",
+                    "iranRanges" to iranRanges.size,
+                )
+            },
             routerPlatform = AndroidRouterPlatform(),
+            bypassPolicy = bypassPolicy,
         )
         server.logBuffer.addListener { _, line -> rotatingLogger.append(line) }
-        server.logBuffer.log(LogLevel.INFO, LogSource.SERVICE, "Relay service starting")
+        server.logBuffer.log(LogLevel.INFO, LogSource.SERVICE, "Relay service starting (${iranRanges.size} Iranian ranges loaded)")
         relay = server
         current = server
         scope.launch(Dispatchers.IO) {
@@ -174,6 +184,17 @@ class RelayService : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .build()
+    }
+
+    private fun loadIranRanges(): Ipv4Ranges {
+        return try {
+            assets.open("iran-ipv4.txt").bufferedReader().use { reader ->
+                Ipv4Ranges.parse(reader.readText(), lenient = true)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "could not load iran-ipv4.txt asset: ${e.message}")
+            Ipv4Ranges.EMPTY
+        }
     }
 
     companion object {

@@ -82,4 +82,35 @@ class BypassPolicyTest {
         assertEquals(Route.DIRECT, p.route(ip("2001:db8::1"), now + 59_000))
         assertEquals(Route.TUNNEL, p.route(ip("104.16.1.1"), now + 61_000))
     }
+
+    @Test
+    fun `parsing file format skips comments, blank lines, and bad lines`() {
+        val fileContent = """
+            # Source: https://ftp.ripe.net/pub/stats/ripencc/delegated-ripencc-extended-latest
+            # Date: 2026-10-16
+            # Count: 3
+
+            2.144.0.0/13
+            # inline comment
+            5.160.0.0/16
+
+            # Bad lines to be skipped
+            not-an-ip
+            5.160.0.0/33
+            300.1.1.1/8
+            5.160.0/16
+            2a01:5ec0::/29
+            185.143.232.0/22
+        """.trimIndent()
+
+        val r = Ipv4Ranges.parse(fileContent, lenient = true)
+        assertEquals(3, r.size)
+        assertTrue(r.contains(ip4("2.144.0.1")))
+        assertTrue(r.contains(ip4("5.160.1.1")))
+        assertTrue(r.contains(ip4("185.143.232.1")))
+        assertFalse(r.contains(ip4("8.8.8.8")))
+
+        val r2 = Ipv4Ranges.parseLenient(fileContent)
+        assertEquals(3, r2.size)
+    }
 }

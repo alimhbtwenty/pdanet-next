@@ -6,3 +6,6 @@ local.properties
 .kotlin/
 windows/out/
 .worktrees/
+android/app/src/main/assets/iran-ipv4.txt
+__pycache__/
+*.pyc

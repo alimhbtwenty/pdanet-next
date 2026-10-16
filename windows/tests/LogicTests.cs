@@ -127,6 +127,17 @@ Test("phone status json parses protected and killSwitch fields", () =>
     Equal(false, s2.KillSwitch, "killSwitch false");
 });
 
+Test("phone status json parses iranRanges field", () =>
+{
+    var s = PhoneStatus.Parse(
+        "{\"app\":\"pdanext\",\"version\":\"3.0.0\",\"iranRanges\":624}");
+    Equal(624, s.IranRanges, "iranRanges");
+
+    var s2 = PhoneStatus.Parse(
+        "{\"app\":\"pdanext\",\"version\":\"3.0.0\"}");
+    Equal(0, s2.IranRanges, "iranRanges default 0");
+});
+
 Test("kill switch firewall: generated command strings", () =>
 {
     string blockCmd = KillSwitchFirewall.BuildAddBlockRuleCommand();
