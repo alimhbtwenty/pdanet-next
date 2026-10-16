@@ -22,6 +22,7 @@ namespace PdaNext
         public long BytesDown;
         public long ActiveTcp;
         public long ActiveUdp;
+        public string XrayProfile;
         /// <summary>The /status body as received, for the diagnostics export.</summary>
         public string RawJson;
 
@@ -78,6 +79,7 @@ namespace PdaNext
                 VpnActive = FlatJson.Str(f, "vpnActive") == "true",
                 Protected = FlatJson.Str(f, "protected") == "true",
                 KillSwitch = FlatJson.Str(f, "killSwitch") == "true",
+                XrayProfile = FlatJson.Str(f, "xrayProfile"),
                 BytesUp = FlatJson.Long(f, "bytesUp"),
                 BytesDown = FlatJson.Long(f, "bytesDown"),
                 ActiveTcp = FlatJson.Long(f, "activeTcp"),

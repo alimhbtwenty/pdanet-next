@@ -7,6 +7,8 @@ import io.github.alimhbtwenty.pdanext.core.router.RouterConfig
 import io.github.alimhbtwenty.pdanext.core.router.RouterLink
 import io.github.alimhbtwenty.pdanext.core.router.RouterPlatform
 import io.github.alimhbtwenty.pdanext.core.router.Upstream
+import io.github.alimhbtwenty.pdanext.core.xray.JsonHelper
+import io.github.alimhbtwenty.pdanext.core.xray.XrayControl
 import java.io.BufferedInputStream
 import java.io.IOException
 import java.io.InputStream
@@ -25,7 +27,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * The phone side of PdaNext, on one loopback port reached by the PC through `adb forward`:
  *  - the router link ("PDNR"): raw IP packets from the PC's network adapter, NAT-ed by [Router];
  *  - `GET /status`: JSON counters plus the phone's uplink/VPN state, polled by the PC app;
- *  - `GET /ping-pc`: an ICMP echo from the phone (the router) to the PC.
+ *  - `GET /ping-pc`: an ICMP echo from the phone (the router) to the PC;
+ *  - `/xray/*`: PC control for Xray profiles and bypass domains.
  *
  * Every outgoing socket is opened by this process, so the phone's own routing decides
  * where it goes: mobile data, WiFi, or an active VPN.
@@ -40,7 +43,9 @@ class RelayServer(
     private val routerPlatform: RouterPlatform = JvmRouterPlatform(),
     private val tunnelUpstream: Upstream? = null,
     /** Current tunnel for new flows (e.g. the selected Xray config); null = everything DIRECT. */
-    private val tunnelProvider: () -> Upstream? = { tunnelUpstream },
+    /** PC-managed Xray profiles (`/xray/*`); its selected profile is the tunnel. */
+    val xrayControl: XrayControl? = null,
+    private val tunnelProvider: () -> Upstream? = { xrayControl?.activeTunnel ?: tunnelUpstream },
     private val bypassPolicy: BypassPolicy = BypassPolicy(),
     val logBuffer: LogRingBuffer = LogRingBuffer(),
     val requireProtection: Boolean = routerConfig.requireProtection,
@@ -130,9 +135,10 @@ class RelayServer(
                 n += r
             }
             input.reset()
-            when (String(head, Charsets.US_ASCII)) {
-                RouterLink.MAGIC -> RouterLink(this, client, input, routerConfig, routerPlatform, tunnelProvider, bypassPolicy).run()
-                "GET " -> serveHttp(client, input, client.getOutputStream())
+            val headStr = String(head, Charsets.US_ASCII)
+            when {
+                headStr == RouterLink.MAGIC -> RouterLink(this, client, input, routerConfig, routerPlatform, tunnelProvider, bypassPolicy).run()
+                headStr.startsWith("GET ") || headStr == "POST" -> serveHttp(client, input, client.getOutputStream())
             }
         } catch (e: Exception) {
             if (e !is SocketException) log("session error: ${e.javaClass.simpleName}: ${e.message}")
@@ -142,45 +148,234 @@ class RelayServer(
         }
     }
 
-    /** Tiny HTTP/1.1 responder for the PC app's status, ping, and log requests. */
-    private fun serveHttp(client: Socket, input: InputStream, output: OutputStream) {
+    private fun readHttpLine(input: InputStream): String? {
         val line = StringBuilder()
-        while (line.length < 1024) {
+        while (line.length < 8192) {
             val b = input.read()
-            if (b < 0 || b == '\n'.code) break
+            if (b < 0) return if (line.isNotEmpty()) line.toString() else null
+            if (b == '\n'.code) {
+                if (line.isNotEmpty() && line[line.length - 1] == '\r') {
+                    line.setLength(line.length - 1)
+                }
+                return line.toString()
+            }
             line.append(b.toChar())
         }
-        val path = line.split(' ').getOrNull(1)?.substringBefore('?')
-        if (path == "/log") {
-            if (!client.inetAddress.isLoopbackAddress) {
-                val body = "403 Forbidden: loopback only\n".toByteArray()
-                output.write(
-                    ("HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain; charset=utf-8\r\n" +
-                        "Content-Length: ${body.size}\r\nConnection: close\r\n\r\n").toByteArray()
-                )
-                output.write(body)
-                output.flush()
+        return line.toString()
+    }
+
+    /** Tiny HTTP/1.1 responder for the PC app's status, ping, log, and xray control requests. */
+    private fun serveHttp(client: Socket, input: InputStream, output: OutputStream) {
+        val firstLine = readHttpLine(input) ?: return
+        val parts = firstLine.split(' ')
+        if (parts.size < 2) return
+        val method = parts[0]
+        val path = parts[1].substringBefore('?')
+
+        var contentLength: Int? = null
+        while (true) {
+            val h = readHttpLine(input) ?: break
+            if (h.isEmpty()) break
+            val colon = h.indexOf(':')
+            if (colon > 0) {
+                val name = h.substring(0, colon).trim()
+                val value = h.substring(colon + 1).trim()
+                if (name.equals("Content-Length", ignoreCase = true)) {
+                    contentLength = value.toIntOrNull()
+                }
+            }
+        }
+
+        val bodyText: String
+        if (method == "POST") {
+            val len = contentLength
+            if (len == null || len < 0 || len > 1024 * 1024) {
+                sendHttpError(output, 400, "Bad Request: invalid Content-Length")
                 return
             }
+            val buf = ByteArray(len)
+            var read = 0
+            while (read < len) {
+                val r = input.read(buf, read, len - read)
+                if (r < 0) {
+                    sendHttpError(output, 400, "Bad Request: unexpected end of stream")
+                    return
+                }
+                read += r
+            }
+            bodyText = String(buf, Charsets.UTF_8)
+        } else {
+            bodyText = ""
+        }
+
+        if (path == "/log" || path.startsWith("/xray/")) {
+            if (!client.inetAddress.isLoopbackAddress) {
+                sendHttpError(output, 403, "403 Forbidden: loopback only")
+                return
+            }
+        }
+
+        if (path == "/log" && method == "GET") {
             val text = logBuffer.dumpText()
-            val bytes = text.toByteArray(Charsets.UTF_8)
-            output.write(
-                ("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\n" +
-                    "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n").toByteArray()
-            )
-            output.write(bytes)
-            output.flush()
+            sendHttpText(output, 200, text)
             return
         }
-        val body = when (path) {
-            "/status" -> statusJson()
-            "/ping-pc" -> "{\"ms\":${activeRouter?.pingClient() ?: "null"}}"
-            else -> null
+
+        if (path == "/status" && method == "GET") {
+            sendHttpJson(output, 200, statusJson())
+            return
         }
-        val status = if (body != null) "200 OK" else "404 Not Found"
-        val bytes = (body ?: "{}").toByteArray()
+
+        if (path == "/ping-pc" && method == "GET") {
+            sendHttpJson(output, 200, "{\"ms\":${activeRouter?.pingClient() ?: "null"}}")
+            return
+        }
+
+        if (path.startsWith("/xray/")) {
+            val control = xrayControl
+            if (control == null) {
+                sendHttpError(output, 404, "404 Not Found")
+                return
+            }
+
+            when {
+                path == "/xray/profiles" && method == "GET" -> {
+                    val profiles = control.store.list()
+                    val selId = control.selectedId
+                    val json = profiles.joinToString(prefix = "[", postfix = "]") { p ->
+                        "{\"id\":${Json.quote(p.id)},\"name\":${Json.quote(p.name)},\"selected\":${p.id == selId}}"
+                    }
+                    sendHttpJson(output, 200, json)
+                    return
+                }
+
+                path == "/xray/import" && method == "POST" -> {
+                    val added = control.importLinks(bodyText)
+                    val json = added.joinToString(prefix = "[", postfix = "]") { Json.quote(it) }
+                    sendHttpJson(output, 200, json)
+                    return
+                }
+
+                path == "/xray/select" && method == "POST" -> {
+                    val map = JsonHelper.parseObject(bodyText)
+                    if (map == null) {
+                        sendHttpError(output, 400, "Bad Request: malformed JSON")
+                        return
+                    }
+                    val targetId = map["id"]
+                    try {
+                        control.select(targetId)
+                        sendHttpJson(output, 200, "{\"ok\":true}")
+                    } catch (e: IllegalArgumentException) {
+                        sendHttpError(output, 400, "Bad Request: " + (e.message ?: "unknown profile"))
+                    } catch (e: Exception) {
+                        sendHttpError(output, 400, "Bad Request: failed to start profile")
+                    }
+                    return
+                }
+
+                path == "/xray/delete" && method == "POST" -> {
+                    val map = JsonHelper.parseObject(bodyText)
+                    if (map == null) {
+                        sendHttpError(output, 400, "Bad Request: malformed JSON")
+                        return
+                    }
+                    val targetId = map["id"]
+                    if (targetId == null) {
+                        sendHttpError(output, 400, "Bad Request: missing id")
+                        return
+                    }
+                    val deleted = control.delete(targetId)
+                    sendHttpJson(output, 200, "{\"ok\":$deleted}")
+                    return
+                }
+
+                path == "/xray/delay" && method == "POST" -> {
+                    val map = JsonHelper.parseObject(bodyText)
+                    if (map == null) {
+                        sendHttpError(output, 400, "Bad Request: malformed JSON")
+                        return
+                    }
+                    val targetId = map["id"]
+                    if (targetId == null) {
+                        sendHttpError(output, 400, "Bad Request: missing id")
+                        return
+                    }
+                    if (control.store.get(targetId) == null) {
+                        sendHttpError(output, 400, "Bad Request: unknown profile")
+                        return
+                    }
+                    val ms = control.measureDelay(targetId)
+                    sendHttpJson(output, 200, "{\"ms\":${ms ?: "null"}}")
+                    return
+                }
+
+                path == "/xray/bypass" && method == "GET" -> {
+                    val domains = control.getBypassDomains()
+                    val json = domains.joinToString(prefix = "[", postfix = "]") { Json.quote(it) }
+                    sendHttpJson(output, 200, json)
+                    return
+                }
+
+                path == "/xray/bypass" && method == "POST" -> {
+                    val domains = if (bodyText.trimStart().startsWith("[")) {
+                        val parsed = JsonHelper.parseStringArray(bodyText)
+                        if (parsed == null) {
+                            sendHttpError(output, 400, "Bad Request: malformed JSON array")
+                            return
+                        }
+                        parsed
+                    } else {
+                        bodyText.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+                    }
+                    control.setBypassDomains(domains)
+                    val updated = control.getBypassDomains()
+                    val json = updated.joinToString(prefix = "[", postfix = "]") { Json.quote(it) }
+                    sendHttpJson(output, 200, json)
+                    return
+                }
+
+                else -> {
+                    sendHttpError(output, 404, "404 Not Found")
+                    return
+                }
+            }
+        }
+
+        sendHttpError(output, 404, "404 Not Found")
+    }
+
+    private fun sendHttpJson(output: OutputStream, status: Int, json: String) {
+        val bytes = json.toByteArray(Charsets.UTF_8)
+        val statusText = if (status == 200) "200 OK" else "$status Error"
         output.write(
-            ("HTTP/1.1 $status\r\nContent-Type: application/json\r\nCache-Control: no-store\r\n" +
+            ("HTTP/1.1 $statusText\r\nContent-Type: application/json; charset=utf-8\r\nCache-Control: no-store\r\n" +
+                "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n").toByteArray()
+        )
+        output.write(bytes)
+        output.flush()
+    }
+
+    private fun sendHttpText(output: OutputStream, status: Int, text: String) {
+        val bytes = text.toByteArray(Charsets.UTF_8)
+        output.write(
+            ("HTTP/1.1 $status OK\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\n" +
+                "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n").toByteArray()
+        )
+        output.write(bytes)
+        output.flush()
+    }
+
+    private fun sendHttpError(output: OutputStream, status: Int, message: String) {
+        val statusText = when (status) {
+            400 -> "400 Bad Request"
+            403 -> "403 Forbidden"
+            404 -> "404 Not Found"
+            else -> "$status Error"
+        }
+        val bytes = message.toByteArray(Charsets.UTF_8)
+        output.write(
+            ("HTTP/1.1 $statusText\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\n" +
                 "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n").toByteArray()
         )
         output.write(bytes)
@@ -216,6 +411,7 @@ class RelayServer(
             "routerMode" to isRouter,
             "protected" to prot,
             "killSwitch" to ks,
+            "xrayProfile" to xrayControl?.selectedName,
         )
         fields.putAll(runCatching(statusExtras).getOrDefault(emptyMap()))
         fields["protected"] = prot

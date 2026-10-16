@@ -91,8 +91,8 @@ namespace PdaNext
         bool trayHintShown;
 
         Dot statusDot;
-        Label lblStatus, lblDetail, lblPhone, lblUplink, lblVpn, lblDown, lblUp, lblTotal, lblRouterPing, lblNetPing;
-        Button btnConnect, btnUnblock;
+        Label lblStatus, lblDetail, lblPhone, lblUplink, lblVpn, lblXray, lblDown, lblUp, lblTotal, lblRouterPing, lblNetPing;
+        Button btnConnect, btnUnblock, btnServers;
         ComboBox cbDevice;
         CheckBox chkAuto, chkStartup, chkDns, chkKillSwitch;
         readonly Timer pingTimer = new Timer { Interval = 2000 };
@@ -191,8 +191,24 @@ namespace PdaNext
 
             // Phone card
             var phone = AddCard(x, y, w, 128);
-            int col = (w - 36) / 2;
+            int col = (w - 36) / 3;
             phone.Controls.Add(MakeCaption("PHONE", 18, 14));
+
+            btnServers = new Button
+            {
+                Text = "Servers…",
+                Location = new Point(w - 18 - 84, 10),
+                Size = new Size(84, 24),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Theme.Stroke,
+                ForeColor = Theme.Text,
+                Font = Theme.UI(8.5f, FontStyle.Bold),
+                Cursor = Cursors.Hand,
+            };
+            btnServers.FlatAppearance.BorderSize = 0;
+            btnServers.Click += (s, e) => OpenServers();
+            phone.Controls.Add(btnServers);
+
             cbDevice = new ComboBox
             {
                 DropDownStyle = ComboBoxStyle.DropDownList,
@@ -212,6 +228,9 @@ namespace PdaNext
             phone.Controls.Add(MakeCaption("PHONE VPN", 18 + col, 72));
             lblVpn = MakeLabel("—", Theme.UI(10.5f, FontStyle.Bold), Theme.Text, 18 + col, 92, col);
             phone.Controls.Add(lblVpn);
+            phone.Controls.Add(MakeCaption("XRAY SERVER", 18 + 2 * col, 72));
+            lblXray = MakeLabel("Off (direct)", Theme.UI(10.5f, FontStyle.Bold), Theme.Secondary, 18 + 2 * col, 92, col);
+            phone.Controls.Add(lblXray);
             y += 140;
 
             btnConnect = new Button
@@ -489,6 +508,9 @@ namespace PdaNext
             lblUplink.Text = s.UplinkDisplay;
             lblVpn.Text = s.VpnActive ? "On (PC uses it too)" : "Off";
             lblVpn.ForeColor = s.VpnActive ? Theme.On : Theme.Secondary;
+            bool xray = !string.IsNullOrEmpty(s.XrayProfile);
+            lblXray.Text = xray ? s.XrayProfile : "Off (direct)";
+            lblXray.ForeColor = xray ? Theme.On : Theme.Secondary;
 
             var now = DateTime.UtcNow;
             if (lastStatus != null)
@@ -667,6 +689,17 @@ namespace PdaNext
                 }
             }
             catch { return "—"; }
+        }
+
+        void OpenServers()
+        {
+            if (bridge.State != BridgeState.Connected)
+            {
+                MessageBox.Show(this, "Connect the phone first: servers are stored on the phone.", "PdaNext",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            using (var form = new ServersForm(bridge.Port)) form.ShowDialog(this);
         }
 
         void ToggleLog()

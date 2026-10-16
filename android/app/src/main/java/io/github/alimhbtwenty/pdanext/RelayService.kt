@@ -20,6 +20,10 @@ import io.github.alimhbtwenty.pdanext.core.LogLevel
 import io.github.alimhbtwenty.pdanext.core.LogSource
 import io.github.alimhbtwenty.pdanext.core.RelayServer
 import io.github.alimhbtwenty.pdanext.core.RotatingFileLogger
+import io.github.alimhbtwenty.pdanext.core.router.BypassPolicy
+import io.github.alimhbtwenty.pdanext.core.xray.XrayControl
+import io.github.alimhbtwenty.pdanext.xray.AndroidXrayProfileStore
+import io.github.alimhbtwenty.pdanext.xray.NoXrayEngine
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -74,11 +78,23 @@ class RelayService : Service() {
         if (relay?.isRunning == true) return START_STICKY
 
         val rotatingLogger = RotatingFileLogger(File(filesDir, "logs"), maxBytes = 1024 * 1024, maxFiles = 2)
+        val store = AndroidXrayProfileStore(applicationContext)
+        val engine = NoXrayEngine()
+        val bypassPolicy = BypassPolicy()
+        val xrayControl = XrayControl(store, engine, bypassPolicy)
+        try {
+            xrayControl.startSelected()
+        } catch (e: Exception) {
+            Log.w(TAG, "could not start selected profile on startup", e)
+        }
+
         val server = RelayServer(
             port = RelayServer.DEFAULT_PORT,
             log = { Log.d(TAG, it) },
             statusExtras = { UplinkInfo.read(this).toStatus() + ("device" to "${Build.MANUFACTURER} ${Build.MODEL}") },
             routerPlatform = AndroidRouterPlatform(),
+            bypassPolicy = bypassPolicy,
+            xrayControl = xrayControl,
         )
         server.logBuffer.addListener { _, line -> rotatingLogger.append(line) }
         server.logBuffer.log(LogLevel.INFO, LogSource.SERVICE, "Relay service starting")

@@ -182,6 +182,39 @@ Test("kill switch firewall: leftover rules are detected after a crash or reboot"
     Equal(false, KillSwitchFirewall.RulesPresent(), "query failed");
 });
 
+Test("xray protocol: requests the phone understands", () =>
+{
+    Equal("{\"id\":null}", XrayProtocol.BuildSelectJson(null), "select off");
+    Equal("{\"id\":\"prof_1\"}", XrayProtocol.BuildSelectJson("prof_1"), "select one");
+    Equal("[\"a.com\",\"b \\\"x\\\".ir\"]", XrayProtocol.BuildBypassJson(new[] { " a.com ", "", "b \"x\".ir" }), "bypass escaped, blanks dropped");
+
+    string body = "{\"id\":\"é\"}"; // non-ASCII: Content-Length counts bytes, not chars
+    string req = XrayProtocol.BuildHttpRequest("POST", "/xray/select", body);
+    Equal(true, req.StartsWith("POST /xray/select HTTP/1.1\r\n"), "request line");
+    Equal(true, req.Contains("Content-Length: " + System.Text.Encoding.UTF8.GetByteCount(body) + "\r\n"), "byte length");
+    Equal(true, req.EndsWith("\r\n\r\n" + body), "body after the blank line");
+    Equal(false, XrayProtocol.BuildHttpRequest("GET", "/xray/profiles").Contains("Content-Length"), "GET has no body");
+});
+
+Test("xray protocol: responses from the phone", () =>
+{
+    Equal(true, XrayProtocol.TryParseHttpResponse("HTTP/1.1 400 Bad Request\r\nA: b\r\n\r\nBad Request: unknown profile", out int code, out string text), "parsed");
+    Equal(400, code, "status");
+    Equal("Bad Request: unknown profile", text, "body");
+
+    var list = XrayProtocol.ParseProfilesJson("[{\"id\":\"p1\",\"name\":\"DE \\\"fast\\\"\",\"selected\":false},{\"id\":\"p2\",\"name\":\"NL\",\"selected\":true}]");
+    Equal(2, list.Count, "two profiles");
+    Equal("DE \"fast\"", list[0].Name, "escaped name");
+    Equal(false, list[0].Selected, "first not selected");
+    Equal(true, list[1].Selected, "second selected");
+    Equal(0, XrayProtocol.ParseProfilesJson("[]").Count, "empty list");
+
+    Equal(42L, XrayProtocol.ParseDelayResultJson("{\"ms\":42}"), "delay");
+    Equal(null, XrayProtocol.ParseDelayResultJson("{\"ms\":null}"), "delay failed");
+    var ids = XrayProtocol.ParseStringArrayJson("[\"prof_a\",\"prof_b\"]");
+    Equal(2, ids.Count, "imported ids");
+});
+
 string relayPort = Environment.GetEnvironmentVariable("RELAY_PORT");
 if (!string.IsNullOrEmpty(relayPort))
 {
