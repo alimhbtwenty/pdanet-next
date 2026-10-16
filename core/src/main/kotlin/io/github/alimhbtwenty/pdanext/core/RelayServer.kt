@@ -447,7 +447,7 @@ internal object Json {
         else -> quote(v.toString())
     }
 
-    private fun quote(s: String): String {
+    internal fun quote(s: String): String {
         val sb = StringBuilder("\"")
         for (c in s) {
             when {
