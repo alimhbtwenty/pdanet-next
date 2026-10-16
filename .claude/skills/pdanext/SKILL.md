@@ -30,8 +30,12 @@ Technical field notes: the `networking` skill.
 - `alimhbtwenty/whatsapp-attendance-bot`: unrelated PWA. Branch `ccr-bd34aa07-k9vhv4` there holds 50
   third-party "antigravity" skills under `.claude/skills` (unmerged; owner said they are not
   repo-specific). The skills zip came from the owner; it was scanned and looked benign.
-- **Never tested on a real phone + Windows PC yet.** First real test: ask for the Windows log
-  ("Show log") and the phone screen state.
+- **First real-device test passed (2026-10-16)**, owner's Xiaomi M2007J3SY (Mi 10T) + Windows 11,
+  run from a local Claude Code session on that PC (adb, gh, PdaNext installed; no .NET SDK there,
+  shell not elevated). PC exit IP = phone VPN IP, no IPv6 leak, DNS/UDP/ping fine, PC throughput =
+  the phone's own (VPN-bound). Only bug: phone->PC ping blocked by the Public firewall profile,
+  fixed in 3.0.1 (firewall rule in `NetConfig`). The Windows log is UI-only (no file); the
+  `/status` endpoint via the adb forward and `adb logcat --pid` are the useful diagnostics.
 
 ## What was built (in order) and why
 1. Health check of v2: `adb reverse` instead of `adb forward` (could never connect), proxy only
@@ -67,7 +71,7 @@ Technical field notes: the `networking` skill.
   unchanged.
 - Kill switch (keep PC offline when the link drops) - offered, not requested yet.
 - Code signing for the MSI (SmartScreen warns today).
-- Real-device test pass; then tune MTU/window if throughput is low.
+- Verify "Ping PC" on the device after installing 3.0.1. Throughput needs no tuning so far.
 
 ## Environment gotchas (Claude Code cloud container)
 - `dl.google.com` blocked: no local Android SDK; rely on CI for the APK. GitHub release downloads
