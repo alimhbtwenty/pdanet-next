@@ -68,7 +68,9 @@ jobs:
           export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
           go install golang.org/x/mobile/cmd/gomobile@$GOMOBILE_VERSION golang.org/x/mobile/cmd/gobind@$GOMOBILE_VERSION
           gomobile init
-          gomobile bind -target=android/arm64,android/arm -androidapi 24 -trimpath \n            -ldflags="-checklinkname=0 -s -w -buildid= -extldflags=-Wl,-z,max-page-size=16384" -o xraybridge.aar .
+          # Same flags as libXray: Xray deps use go:linkname into net (checklinkname=0); 16 KB pages for Android 15+.
+          gomobile bind -target=android/arm64,android/arm -androidapi 24 -trimpath \
+            -ldflags="-checklinkname=0 -s -w -buildid= -extldflags=-Wl,-z,max-page-size=16384" -o xraybridge.aar .
           ls -l xraybridge.aar
       - uses: actions/upload-artifact@v4
         with: { name: xraybridge-aar, path: xraybridge/xraybridge.aar }
