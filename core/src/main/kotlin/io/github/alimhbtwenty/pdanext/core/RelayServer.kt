@@ -216,6 +216,7 @@ class RelayServer(
             "routerMode" to isRouter,
             "protected" to prot,
             "killSwitch" to ks,
+            "iranRanges" to bypassPolicy.ranges.size,
         )
         fields.putAll(runCatching(statusExtras).getOrDefault(emptyMap()))
         fields["protected"] = prot

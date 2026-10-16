@@ -26,6 +26,8 @@ jobs:
         with: { distribution: temurin, java-version: "17" }
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: "8.10.2" }
+      - name: Test Iranian IP list generator
+        run: python3 tools/iran-ip-list/test_generate.py
       - run: gradle -p core test installDist --stacktrace
       - uses: actions/upload-artifact@v4
         with: { name: relay-desktop, path: core/build/install/core }
@@ -54,6 +56,18 @@ jobs:
         with: { distribution: temurin, java-version: "17" }
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: "8.10.2" }
+      - name: Generate Iranian IPv4 list
+        run: |
+          mkdir -p android/app/src/main/assets
+          python3 tools/iran-ip-list/generate.py \
+            --min-ranges 500 \
+            --output android/app/src/main/assets/iran-ipv4.txt
+          count=$(grep -v '^#' android/app/src/main/assets/iran-ipv4.txt | grep -c . || true)
+          echo "Generated $count Iranian IPv4 CIDR ranges"
+          if [ "$count" -lt 500 ]; then
+            echo "Error: expected at least 500 ranges, got $count" >&2
+            exit 1
+          fi
       - run: gradle -p android :app:assembleRelease --stacktrace
       - run: cp android/app/build/outputs/apk/release/app-release.apk PdaNext.apk
       - uses: actions/upload-artifact@v4
