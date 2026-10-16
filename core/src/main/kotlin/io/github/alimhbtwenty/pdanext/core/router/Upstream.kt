@@ -40,16 +40,25 @@ class DirectUpstream(val platform: RouterPlatform) : Upstream {
 
     override fun connectTcp(dest: InetAddress, port: Int, timeoutMs: Int): StreamConnection {
         val s = Socket()
-        s.connect(InetSocketAddress(dest, port), timeoutMs)
-        s.tcpNoDelay = true
-        s.keepAlive = true
+        try {
+            s.connect(InetSocketAddress(dest, port), timeoutMs)
+            s.tcpNoDelay = true
+            s.keepAlive = true
+        } catch (e: Exception) {
+            runCatching { s.close() }
+            throw e
+        }
         return SocketStreamConnection(s)
     }
 
     override fun openUdp(dest: InetAddress, port: Int): DatagramFlow {
-        val s = DatagramSocket().apply {
-            connect(InetSocketAddress(dest, port))
-            soTimeout = 1000
+        val s = DatagramSocket()
+        try {
+            s.connect(InetSocketAddress(dest, port))
+            s.soTimeout = 1000
+        } catch (e: Exception) {
+            s.close()
+            throw e
         }
         return SocketDatagramFlow(s)
     }
