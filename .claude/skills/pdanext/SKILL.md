@@ -80,12 +80,39 @@ Technical field notes: the `networking` skill.
   CI (`release.yml`) runs on every push, including the Linux e2e and the Windows build/tests.
   Claude subscribes to the PRs, reviews (run the tests, read the diff), comments on the PR, and merges
   the branches into the work branch when green. Never merge an agent branch unreviewed.
-- **State 2026-10-16:** done on the work branch: `BypassPolicy` + tests, ADR-0001, research docs,
-  agent rules. Agent branches `bypass-wiring`, `logging`, `kill-switch` (2026-10-16) all have real
-  defects, listed in `docs/reviews/antigravity/claude-triage-2026-10-16.md`; the agents were asked to
-  fix them through draft PRs. Merge order after fixes: bypass-wiring, logging, kill-switch. Next: the
-  Xray Go bridge (gomobile AAR in CI, libXray MIT for links/latency), Android `XrayUpstream`, PC config UI,
-  Iranian IP list generated in CI, then the VPN picker + scrcpy agent.
+- **State 2026-10-16 (later):** the triage defects in `docs/reviews/antigravity/claude-triage-2026-10-16.md`
+  were fixed by Claude directly on the agent branches (PRs #7 #8 #9, all CI green, review comments on
+  each PR). The three were merged in order (bypass-wiring, logging, kill-switch) with conflicts resolved
+  on **`integrate/v3.1`** (= work branch + the three). Kill switch design after the fix: one outbound
+  block rule in group "PdaNext Kill Switch"; the group itself is the persisted state (queried on start);
+  the MSI removes it on uninstall. Pending owner approval: fast-forward the work branch to
+  `integrate/v3.1`, merge PR #6 (`fix/ping-pc-firewall`, 3.0.1) to `main`, close PR #5
+  (`preview/new-version`, based on v2.0.8, obsolete). After 3.0.1 is on `main`, merge `main` into the
+  work branch (VERSION and this file will conflict; take 3.0.1 and keep both handoff notes).
+  Merges need the owner's approval in this environment (the auto-mode guard blocks `gh pr merge`).
+  Sessions get confused when they start from `main`: this section exists only on the work branch.
+- **State 2026-10-16 (evening):** `integrate/v3.1` now also holds the VPN picker, the Iranian IP list
+  (#11), log retention (#13), the Xray engine (#12) and PC server management (#14), all CI green;
+  the owner merges PR #10 (`integrate/v3.1` -> work branch) on GitHub. Task briefs: `docs/tasks/`.
+  - **Logs (owner's rules):** nothing is deleted automatically; Windows "Clear logs" button (confirm)
+    deletes `*.log` in `%LOCALAPPDATA%\PdaNext\logs`; the PC copies phone logs (`/log?since`, boot id
+    in `X-Log-Boot`, state in `phone-log-state.txt`) to `phone-YYYYMMDD.log`; the phone keeps only
+    connection failures (`level >= WARN`) in `files/logs/failures*.log`, never deleted, copied to the
+    PC on connect/disconnect.
+  - **Xray:** `xraybridge/` (Go 1.27.2, libXray v1.261010.0, gomobile with `-checklinkname=0` and
+    16 KB pages) -> AAR in CI; `XrayEngineImpl` on Android; `CloseWrite` is a no-op on purpose (Xray
+    does not deliver FIN; ending the uplink would trigger its 1 s downlink-only cut). APK ~26 MB.
+    `XrayControl` + Keystore-encrypted store; `/xray/` endpoints (loopback); PC "Servers" window.
+  - **Not done / known limits:** nothing tested on the phone yet; kill switch XRAY mode not tied to
+    the selected server; PC list parser skips server names containing `{`/`}`; Windows main window is
+    920 px tall.
+  - **Antigravity agents:** run with `agy -p ... --dangerously-skip-permissions` (needs the session in
+    Manual mode; the auto-mode guard blocks it). Their credits (Claude and Gemini models) ran out on
+    2026-10-16 after ~3 tasks. Quality: fine for bounded tasks, every branch still had at least one
+    real defect found only by review; keep router/Xray/protocol work with Claude.
+  - **Local toolchain on the laptop** (user folder, checksums verified): Go `C:\Users\Alimhb\tools\go1.27.2`,
+    JDK 17 `C:\Users\Alimhb\tools\jdk17`, Gradle 8.10.2 `C:\Users\Alimhb\tools\gradle`. `dl.google.com`
+    is blocked from this network (use `mirrors.aliyun.com/golang` + the go.dev checksum). No .NET SDK.
 - **Remote Control:** the laptop (`DESKTOP-RGERDBN`) can run `claude remote-control`
   (`claude.cmd` if PowerShell blocks scripts), but a cloud session needs the owner's trusted-device
   approval to start sessions there; the owner chose the GitHub PR loop instead.

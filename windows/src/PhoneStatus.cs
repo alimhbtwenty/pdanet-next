@@ -16,10 +16,16 @@ namespace PdaNext
         public string Uplink;
         public bool UplinkConnected;
         public bool VpnActive;
+        public bool Protected;
+        public bool KillSwitch;
+        public int IranRanges;
         public long BytesUp;
         public long BytesDown;
         public long ActiveTcp;
         public long ActiveUdp;
+        public string XrayProfile;
+        /// <summary>The /status body as received, for the diagnostics export.</summary>
+        public string RawJson;
 
         public string UplinkDisplay
         {
@@ -72,10 +78,15 @@ namespace PdaNext
                 Uplink = FlatJson.Str(f, "uplink"),
                 UplinkConnected = FlatJson.Str(f, "uplinkConnected") != "false",
                 VpnActive = FlatJson.Str(f, "vpnActive") == "true",
+                Protected = FlatJson.Str(f, "protected") == "true",
+                KillSwitch = FlatJson.Str(f, "killSwitch") == "true",
+                IranRanges = (int)FlatJson.Long(f, "iranRanges"),
+                XrayProfile = FlatJson.Str(f, "xrayProfile"),
                 BytesUp = FlatJson.Long(f, "bytesUp"),
                 BytesDown = FlatJson.Long(f, "bytesDown"),
                 ActiveTcp = FlatJson.Long(f, "activeTcp"),
                 ActiveUdp = FlatJson.Long(f, "activeUdp"),
+                RawJson = json,
             };
         }
     }

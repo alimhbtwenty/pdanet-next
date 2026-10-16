@@ -15,15 +15,27 @@ enum class Route { DIRECT, TUNNEL }
  * `.ir` or match [domains] (suffix match: `example.com` covers `www.example.com`).
  * Everything else goes through the tunnel; a tunnel failure must never fall back to direct.
  */
-class BypassPolicy(domains: Collection<String> = emptyList(), private val ranges: Ipv4Ranges = Ipv4Ranges.EMPTY) {
-    private val domains: Set<String> = domains.mapNotNull(::hostOf).toSet()
+class BypassPolicy(domains: Collection<String> = emptyList(), val ranges: Ipv4Ranges = Ipv4Ranges.EMPTY) {
+    private val ownerDomains = java.util.concurrent.CopyOnWriteArraySet<String>().apply {
+        addAll(domains.mapNotNull(::hostOf))
+    }
+    val domains: Set<String> get() = ownerDomains
     private val learned = ConcurrentHashMap<InetAddress, Long>()
+
+    fun setDomains(newDomains: Collection<String>) {
+        ownerDomains.clear()
+        ownerDomains.addAll(newDomains.mapNotNull(::hostOf))
+    }
+
+    fun addDomains(newDomains: Collection<String>) {
+        ownerDomains.addAll(newDomains.mapNotNull(::hostOf))
+    }
 
     fun isDomesticName(name: String): Boolean {
         var n = name.lowercase().trimEnd('.')
         if (n == "ir" || n.endsWith(".ir")) return true
         while (true) {
-            if (n in domains) return true
+            if (n in ownerDomains) return true
             val dot = n.indexOf('.')
             if (dot < 0) return false
             n = n.substring(dot + 1)
@@ -83,12 +95,25 @@ class Ipv4Ranges private constructor(private val starts: LongArray, private val 
     companion object {
         val EMPTY = Ipv4Ranges(LongArray(0), LongArray(0))
 
-        /** One `a.b.c.d/n` per line; blank lines, `#` comments and IPv6 entries are skipped. */
-        fun parse(text: String): Ipv4Ranges {
+        /**
+         * One `a.b.c.d/n` per line; blank lines, `#` comments and IPv6 entries are skipped.
+         * If [lenient] is true, invalid lines that cannot be parsed as a CIDR are also skipped.
+         */
+        fun parse(text: String, lenient: Boolean = false): Ipv4Ranges {
             val ranges = text.lineSequence()
                 .map { it.substringBefore('#').trim() }
                 .filter { it.isNotEmpty() && ':' !in it }
-                .map(::parseCidr)
+                .mapNotNull { line ->
+                    if (lenient) {
+                        try {
+                            parseCidr(line)
+                        } catch (_: Exception) {
+                            null
+                        }
+                    } else {
+                        parseCidr(line)
+                    }
+                }
                 .sortedBy { it.first }
                 .toList()
             val starts = ArrayList<Long>()
@@ -104,12 +129,18 @@ class Ipv4Ranges private constructor(private val starts: LongArray, private val 
             return Ipv4Ranges(starts.toLongArray(), ends.toLongArray())
         }
 
+        fun parseLenient(text: String): Ipv4Ranges = parse(text, lenient = true)
+
         private fun parseCidr(cidr: String): Pair<Long, Long> {
-            val prefix = cidr.substringAfter('/', "32").toInt()
-            require(prefix in 0..32) { "bad prefix in $cidr" }
+            val prefix = cidr.substringAfter('/', "32").toIntOrNull()
+            require(prefix != null && prefix in 0..32) { "bad prefix in $cidr" }
             val parts = cidr.substringBefore('/').split('.')
             require(parts.size == 4) { "bad address in $cidr" }
-            val bytes = ByteArray(4) { parts[it].toInt().also { b -> require(b in 0..255) { "bad address in $cidr" } }.toByte() }
+            val bytes = ByteArray(4) {
+                val b = parts[it].toIntOrNull()
+                require(b != null && b in 0..255) { "bad address in $cidr" }
+                b.toByte()
+            }
             val size = 1L shl (32 - prefix)
             val start = toLong(bytes) and (size - 1).inv() and 0xFFFFFFFFL
             return start to start + size - 1

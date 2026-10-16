@@ -10,7 +10,14 @@
   <ItemGroup>
     <Compile Include="LogicTests.cs" />
     <Compile Include="..\src\Adb.cs" />
+    <Compile Include="..\src\FileLogger.cs" />
+    <Compile Include="..\src\KillSwitchFirewall.cs" />
     <Compile Include="..\src\PhoneStatus.cs" />
     <Compile Include="..\src\RouterLinkProtocol.cs" />
+    <Compile Include="..\src\SecretRedactor.cs" />
+    <Compile Include="..\src\VpnDiscovery.cs" />
+    <Compile Include="..\src\Scrcpy.cs" />
+    <Compile Include="..\src\PhoneLogPoller.cs" />
+    <Compile Include="..\src\XrayProtocol.cs" />
   </ItemGroup>
 </Project>

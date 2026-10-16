@@ -16,7 +16,15 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import io.github.alimhbtwenty.pdanext.core.LogLevel
+import io.github.alimhbtwenty.pdanext.core.LogSource
 import io.github.alimhbtwenty.pdanext.core.RelayServer
+import io.github.alimhbtwenty.pdanext.core.FailureFileLogger
+import io.github.alimhbtwenty.pdanext.core.router.BypassPolicy
+import io.github.alimhbtwenty.pdanext.core.router.Ipv4Ranges
+import io.github.alimhbtwenty.pdanext.core.xray.XrayControl
+import io.github.alimhbtwenty.pdanext.xray.AndroidXrayProfileStore
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -69,12 +77,31 @@ class RelayService : Service() {
         }
         if (relay?.isRunning == true) return START_STICKY
 
+        val failureLogger = FailureFileLogger(File(filesDir, "logs"))
+        val iranRanges = loadIranRanges()
+        val bypassPolicy = BypassPolicy(ranges = iranRanges)
+        // Servers are managed from the PC (/xray/ endpoints); the selected one carries Route.TUNNEL flows.
+        val xrayControl = XrayControl(AndroidXrayProfileStore(applicationContext), xrayEngine, bypassPolicy)
+        try {
+            xrayControl.startSelected()
+        } catch (e: Exception) {
+            // Stays selected: tunnelled flows fail rather than leave directly (ADR-0001).
+            Log.w(TAG, "could not start the selected Xray server: ${e.message}")
+        }
+
         val server = RelayServer(
             port = RelayServer.DEFAULT_PORT,
             log = { Log.d(TAG, it) },
-            statusExtras = { UplinkInfo.read(this).toStatus() + ("device" to "${Build.MANUFACTURER} ${Build.MODEL}") },
+            statusExtras = {
+                UplinkInfo.read(this).toStatus() + ("device" to "${Build.MANUFACTURER} ${Build.MODEL}") +
+                    ("xrayRunning" to xrayEngine.isRunning)
+            },
             routerPlatform = AndroidRouterPlatform(),
+            bypassPolicy = bypassPolicy,
+            failureLogger = failureLogger,
+            xrayControl = xrayControl,
         )
+        server.logBuffer.log(LogLevel.INFO, LogSource.SERVICE, "Relay service starting (${iranRanges.size} Iranian ranges loaded)")
         relay = server
         current = server
         scope.launch(Dispatchers.IO) {
@@ -82,6 +109,7 @@ class RelayService : Service() {
                 server.start()
             } catch (e: Exception) {
                 Log.e(TAG, "relay failed to start", e)
+                server.logBuffer.log(LogLevel.ERROR, LogSource.SERVICE, "relay failed to start on port ${RelayServer.DEFAULT_PORT}: ${e.message}")
                 _state.value = State(error = "Port ${RelayServer.DEFAULT_PORT} is busy: ${e.message}")
                 stopSelf()
                 return@launch
@@ -133,8 +161,10 @@ class RelayService : Service() {
     }
 
     override fun onDestroy() {
+        relay?.logBuffer?.log(LogLevel.INFO, LogSource.SERVICE, "Relay service stopping")
         scope.cancel()
         relay?.stop()
+        runCatching { xrayEngine.stop() }
         relay = null
         current = null
         runCatching { wakeLock?.takeIf { it.isHeld }?.release() }
@@ -168,6 +198,17 @@ class RelayService : Service() {
             .build()
     }
 
+    private fun loadIranRanges(): Ipv4Ranges {
+        return try {
+            assets.open("iran-ipv4.txt").bufferedReader().use { reader ->
+                Ipv4Ranges.parse(reader.readText(), lenient = true)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "could not load iran-ipv4.txt asset: ${e.message}")
+            Ipv4Ranges.EMPTY
+        }
+    }
+
     companion object {
         private const val TAG = "PdaNext"
         private const val CHANNEL_ID = "relay"
@@ -175,6 +216,9 @@ class RelayService : Service() {
         const val ACTION_STOP = "io.github.alimhbtwenty.pdanext.STOP"
 
         @Volatile private var current: RelayServer? = null
+
+        /** The embedded Xray engine (one per process, like the Go instance behind it). */
+        val xrayEngine = XrayEngineImpl()
 
         /** Router mode: ICMP ping from the phone to the PC; milliseconds, or null. Blocking. */
         fun pingPc(): Long? = current?.activeRouter?.pingClient()

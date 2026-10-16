@@ -27,6 +27,47 @@ class RelayServerTest {
         assertTrue("\"app\":\"pdanext\"" in response, response)
         assertTrue("\"vpnActive\":true" in response, response)
         assertTrue("\"routerMode\":false" in response, response)
+        assertTrue("\"protected\":true" in response, response)
+        assertTrue("\"killSwitch\":false" in response, response)
+        assertTrue("\"iranRanges\":0" in response, response)
+    }
+
+    @Test
+    fun `status endpoint reports iranRanges count`() {
+        val server = RelayServer(
+            port = ServerSocket(0).use { it.localPort },
+            bypassPolicy = io.github.alimhbtwenty.pdanext.core.router.BypassPolicy(
+                ranges = io.github.alimhbtwenty.pdanext.core.router.Ipv4Ranges.parse("5.160.0.0/16\n2.144.0.0/14")
+            ),
+        ).also { it.start() }
+        try {
+            val response = Socket(InetAddress.getLoopbackAddress(), server.port).use { s ->
+                s.getOutputStream().write("GET /status HTTP/1.1\r\nHost: phone\r\n\r\n".toByteArray())
+                String(s.getInputStream().readBytes())
+            }
+            assertTrue("\"iranRanges\":2" in response, response)
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun `status endpoint reports killSwitch true and protected false when protection is required but inactive`() {
+        val server = RelayServer(
+            port = ServerSocket(0).use { it.localPort },
+            requireProtection = true,
+            isProtected = { false },
+        ).also { it.start() }
+        try {
+            val response = Socket(InetAddress.getLoopbackAddress(), server.port).use { s ->
+                s.getOutputStream().write("GET /status HTTP/1.1\r\nHost: phone\r\n\r\n".toByteArray())
+                String(s.getInputStream().readBytes())
+            }
+            assertTrue("\"killSwitch\":true" in response, response)
+            assertTrue("\"protected\":false" in response, response)
+        } finally {
+            server.stop()
+        }
     }
 
     @Test

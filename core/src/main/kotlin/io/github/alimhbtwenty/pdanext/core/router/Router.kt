@@ -1,5 +1,7 @@
 package io.github.alimhbtwenty.pdanext.core.router
 
+import io.github.alimhbtwenty.pdanext.core.LogLevel
+import io.github.alimhbtwenty.pdanext.core.LogSource
 import io.github.alimhbtwenty.pdanext.core.RelayStats
 import java.net.Inet4Address
 import java.net.InetAddress
@@ -25,7 +27,16 @@ data class RouterConfig(
      * (e.g. Wi-Fi) by source-address rules and bypass the phone; IPv4-only DNS keeps every flow here.
      */
     val ipv4OnlyDns: Boolean = true,
+    /** Require that traffic only leaves over a protected path (VPN/tunnel). */
+    val requireProtection: Boolean = false,
+    val protectionMode: ProtectionMode = ProtectionMode.EXTERNAL_VPN,
+    val bypassPolicy: BypassPolicy? = null,
 )
+
+enum class ProtectionMode {
+    EXTERNAL_VPN,
+    XRAY,
+}
 
 /** What the router needs from the platform it runs on. */
 interface RouterPlatform {
@@ -52,10 +63,86 @@ data class FlowKey(val pc: InetAddress, val pcPort: Int, val remote: InetAddress
 class Router(
     val config: RouterConfig,
     private val sendToPc: (ByteArray) -> Unit,
-    private val platform: RouterPlatform,
+    val direct: Upstream,
+    tunnel: Upstream? = null,
+    val policy: BypassPolicy = BypassPolicy(),
     val stats: RelayStats,
+    private val platform: RouterPlatform? = (direct as? DirectUpstream)?.platform,
     private val log: (String) -> Unit = {},
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val logger: ((LogLevel, LogSource, String) -> Unit)? = null,
+    var isProtectedProvider: (() -> Boolean)? = null,
+    /**
+     * The tunnel for new flows, asked per flow (so switching Xray configs needs no reconnect).
+     * Null = no config selected = everything DIRECT. A selected but disconnected tunnel must still be
+     * returned (its connects fail): tunnelled flows never fall back to direct.
+     */
+    tunnelProvider: (() -> Upstream?)? = null,
 ) {
+    private val tunnelSource: () -> Upstream? = tunnelProvider ?: { tunnel }
+
+    /** The current tunnel upstream, or null when everything goes DIRECT. */
+    val tunnel: Upstream? get() = tunnelSource()
+
+    constructor(
+        config: RouterConfig,
+        sendToPc: (ByteArray) -> Unit,
+        platform: RouterPlatform,
+        stats: RelayStats,
+        log: (String) -> Unit = {},
+        isProtectedProvider: (() -> Boolean)? = null,
+    ) : this(
+        config = config,
+        sendToPc = sendToPc,
+        direct = DirectUpstream(platform),
+        tunnel = null,
+        policy = config.bypassPolicy ?: BypassPolicy(),
+        stats = stats,
+        platform = platform,
+        log = log,
+        isProtectedProvider = isProtectedProvider,
+    )
+
+    @Volatile var requireProtection: Boolean = config.requireProtection
+    @Volatile var protectionMode: ProtectionMode = config.protectionMode
+    @Volatile var bypassPolicy: BypassPolicy? = config.bypassPolicy ?: policy
+    @Volatile var isVpnActive: (() -> Boolean)? = null
+    @Volatile var isTunnelConnected: (() -> Boolean)? = null
+
+    val isProtected: Boolean
+        get() = isProtectedProvider?.invoke()
+            ?: when (protectionMode) {
+                ProtectionMode.EXTERNAL_VPN -> isVpnActive?.invoke() ?: false
+                ProtectionMode.XRAY -> isTunnelConnected?.invoke() ?: false
+            }
+
+    private val blockedFlowsCount = AtomicInteger()
+    @Volatile private var lastBlockedLogTime = System.currentTimeMillis()
+
+    internal fun recordBlockedFlow() {
+        blockedFlowsCount.incrementAndGet()
+    }
+
+    internal fun flushBlockedLog(): Int {
+        val count = blockedFlowsCount.getAndSet(0)
+        if (count > 0) {
+            log("kill switch: blocked $count flow(s) in the last minute")
+        }
+        return count
+    }
+
+    internal fun shouldBlockFlow(dst: InetAddress): Boolean {
+        if (!requireProtection) return false
+        if (isProtected) return false
+        // Domestic DIRECT flows (BypassPolicy) are allowed only in Xray mode.
+        if (protectionMode == ProtectionMode.XRAY && bypassPolicy != null) {
+            if (bypassPolicy?.route(dst) == Route.DIRECT) {
+                return false
+            }
+        }
+        return true
+    }
+
     internal val executor: ExecutorService = Executors.newCachedThreadPool(daemon("router"))
     internal val timer: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor(daemon("router-timer"))
     internal val tcp = ConcurrentHashMap<FlowKey, TcpSession>()
@@ -70,6 +157,17 @@ class Router(
 
     init {
         timer.scheduleWithFixedDelay({ runCatching { tick() } }, 200, 200, TimeUnit.MILLISECONDS)
+    }
+
+    internal fun selectUpstream(dst: InetAddress): Upstream {
+        val route = policy.route(dst, clock())
+        val tun = tunnel
+        return if (route == Route.DIRECT || tun == null) direct else tun
+    }
+
+    internal fun log(level: LogLevel, source: LogSource, message: String) {
+        if (logger != null) logger.invoke(level, source, message)
+        else log("[${source.tag}] $message")
     }
 
     fun onPacket(buf: ByteArray, length: Int) {
@@ -101,11 +199,29 @@ class Router(
                 val pc = p.src
                 val pcPort = p.srcPort
                 executor.execute {
-                    val type = MiniDns.parseQuestion(query)?.type
+                    val question = MiniDns.parseQuestion(query)
+                    val type = question?.type
+                    val isDomestic = question != null && policy.isDomesticName(question.name)
                     val answer = if (config.ipv4OnlyDns && (type == MiniDns.TYPE_AAAA || type == MiniDns.TYPE_HTTPS)) {
                         MiniDns.noData(query)
                     } else {
-                        runCatching { platform.resolveDns(query) }.getOrNull() ?: MiniDns.serverFailure(query)
+                        val tun = tunnel
+                        val resolved = if (isDomestic || tun == null) {
+                            val resp = runCatching { direct.resolveDns(query) }.getOrNull()
+                            if (resp != null && isDomestic) {
+                                val answers = MiniDns.parseAnswers(resp)
+                                for (ans in answers) {
+                                    policy.learn(listOf(ans.address), ans.ttlSeconds, clock())
+                                }
+                            }
+                            resp
+                        } else {
+                            runCatching { tun.resolveDns(query) }.getOrNull()
+                        }
+                        resolved ?: run {
+                            log(LogLevel.WARN, LogSource.DNS, "DNS query failed for ${question?.name ?: "unknown"} (type $type)")
+                            MiniDns.serverFailure(query)
+                        }
                     }
                     if (answer != null) send(PacketBuilder.udp(gateway, 53, pc, pcPort, answer, 0, answer.size))
                 }
@@ -131,16 +247,22 @@ class Router(
 
     private fun handleIcmp(p: IpPacket) {
         if (!isEchoRequest(p)) return
+        if (shouldBlockFlow(p.dst)) {
+            recordBlockedFlow()
+            return
+        }
         if (activePings.get() >= MAX_PINGS) return
+        val remote = p.dst
+        if (tunnel != null && policy.route(remote, clock()) == Route.TUNNEL) return
+        val pl = platform ?: return
         val payload = p.copyOf(p.icmpDataOffset, p.icmpDataLength)
         val id = p.icmpId
         val seq = p.icmpSeq
-        val remote = p.dst
         val pc = p.src
         activePings.incrementAndGet()
         executor.execute {
             try {
-                if (platform.ping(remote, payload, 4000)) {
+                if (pl.ping(remote, payload, 4000)) {
                     send(PacketBuilder.icmpEcho(remote, pc, true, id, seq, payload, ttl = 56))
                 }
             } catch (e: Exception) {
@@ -157,10 +279,20 @@ class Router(
         val key = FlowKey(p.src, p.srcPort, p.dst, p.dstPort)
         var flow = udp[key]
         if (flow == null || flow.closed) {
+            if (shouldBlockFlow(p.dst)) {
+                recordBlockedFlow()
+                send(PacketBuilder.portUnreachable(gatewayFor(p), p))
+                return
+            }
+            val upstream = selectUpstream(p.dst)
             flow = try {
-                UdpFlow(this, key)
+                val datagram = upstream.openUdp(p.dst, p.dstPort)
+                UdpFlow(this, key, datagram)
             } catch (e: Exception) {
-                log("udp $key: ${e.message}")
+                val fails = stats.failedConnections.incrementAndGet()
+                if (fails <= 5 || fails % 10L == 0L) {
+                    log(LogLevel.WARN, LogSource.ROUTER, "UDP flow for $key failed: ${e.message} (total failed flows: $fails)")
+                }
                 send(PacketBuilder.unreachable(gatewayFor(p), p))
                 return
             }
@@ -185,7 +317,13 @@ class Router(
             return
         }
         if (flags and TCP_SYN != 0 && flags and TCP_ACK == 0) {
-            val s = TcpSession(this, key, p)
+            if (shouldBlockFlow(p.dst)) {
+                recordBlockedFlow()
+                sendRstFor(p)
+                return
+            }
+            val upstream = selectUpstream(p.dst)
+            val s = TcpSession(this, key, p, upstream)
             if (tcp.putIfAbsent(key, s) == null) {
                 stats.activeTcp.incrementAndGet()
                 stats.totalConnections.incrementAndGet()
@@ -224,6 +362,13 @@ class Router(
         val now = System.currentTimeMillis()
         tcp.values.forEach { it.onTimer(now) }
         udp.values.forEach { it.onTimer(now) }
+        if (now - lastBlockedLogTime >= 60_000) {
+            lastBlockedLogTime = now
+            val count = blockedFlowsCount.getAndSet(0)
+            if (count > 0) {
+                log("kill switch: blocked $count flow(s) in the last minute")
+            }
+        }
     }
 
     fun shutdown() {

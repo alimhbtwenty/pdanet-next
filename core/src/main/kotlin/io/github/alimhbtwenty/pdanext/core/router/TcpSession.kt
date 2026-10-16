@@ -1,5 +1,7 @@
 package io.github.alimhbtwenty.pdanext.core.router
 
+import io.github.alimhbtwenty.pdanext.core.LogLevel
+import io.github.alimhbtwenty.pdanext.core.LogSource
 import java.io.IOException
 import java.net.Inet6Address
 import java.net.InetSocketAddress
@@ -19,7 +21,12 @@ import kotlin.random.Random
  * Sequence numbers are kept as Int: arithmetic wraps exactly like TCP's 32-bit space, and
  * `(a - b) > 0` means "a is after b".
  */
-internal class TcpSession(private val router: Router, val key: FlowKey, syn: IpPacket) {
+internal class TcpSession(
+    private val router: Router,
+    val key: FlowKey,
+    syn: IpPacket,
+    private val upstream: Upstream,
+) {
 
     private enum class State { CONNECTING, SYN_RCVD, ESTABLISHED, CLOSED }
 
@@ -29,7 +36,7 @@ internal class TcpSession(private val router: Router, val key: FlowKey, syn: IpP
 
     private val lock = Object()
     @Volatile private var state = State.CONNECTING
-    @Volatile private var socket: Socket? = null
+    @Volatile private var stream: StreamConnection? = null
 
     private val ourMss = if (key.remote is Inet6Address) router.tcpMss6 else router.tcpMss4
     private val segmentSize = minOf(syn.tcpMss() ?: 536, ourMss).coerceAtLeast(64)
@@ -57,14 +64,13 @@ internal class TcpSession(private val router: Router, val key: FlowKey, syn: IpP
     }
 
     private fun connect() {
-        val s = Socket()
-        try {
-            s.connect(InetSocketAddress(key.remote, key.remotePort), CONNECT_TIMEOUT_MS)
-            s.tcpNoDelay = true
-            s.keepAlive = true
+        val s = try {
+            upstream.connectTcp(key.remote, key.remotePort, CONNECT_TIMEOUT_MS)
         } catch (e: Exception) {
-            runCatching { s.close() }
-            router.stats.failedConnections.incrementAndGet()
+            val fails = router.stats.failedConnections.incrementAndGet()
+            if (fails <= 5 || fails % 10L == 0L) {
+                router.log(LogLevel.WARN, LogSource.ROUTER, "TCP connect to ${key.remote.hostAddress}:${key.remotePort} failed: ${e.message} (total failed flows: $fails)")
+            }
             synchronized(lock) {
                 if (state == State.CLOSED) return
                 // Refused / unreachable: answer the SYN with RST so the PC app fails fast.
@@ -78,7 +84,7 @@ internal class TcpSession(private val router: Router, val key: FlowKey, syn: IpP
                 runCatching { s.close() }
                 return
             }
-            socket = s
+            stream = s
             state = State.SYN_RCVD
             sendSynAck()
         }
@@ -160,7 +166,7 @@ internal class TcpSession(private val router: Router, val key: FlowKey, syn: IpP
 
     /** remote -> PC */
     private fun readerLoop() {
-        val input = try { socket!!.getInputStream() } catch (e: IOException) { abort(true); return }
+        val input = try { stream!!.input } catch (e: IOException) { abort(true); return }
         val buf = ByteArray(segmentSize)
         try {
             while (true) {
@@ -209,8 +215,8 @@ internal class TcpSession(private val router: Router, val key: FlowKey, syn: IpP
     /** PC -> remote */
     private fun writerLoop() {
         try {
-            val s = socket ?: return
-            val out = s.getOutputStream()
+            val s = stream ?: return
+            val out = s.output
             while (true) {
                 val chunk = toRemote.take()
                 if (chunk === EOF) {
@@ -264,7 +270,7 @@ internal class TcpSession(private val router: Router, val key: FlowKey, syn: IpP
 
     private fun finish() {
         state = State.CLOSED
-        runCatching { socket?.close() }
+        runCatching { stream?.close() }
         toRemote.clear()
         toRemote.add(EOF)
         unacked.clear()

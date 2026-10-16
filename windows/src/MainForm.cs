@@ -91,15 +91,23 @@ namespace PdaNext
         bool trayHintShown;
 
         Dot statusDot;
-        Label lblStatus, lblDetail, lblPhone, lblUplink, lblVpn, lblDown, lblUp, lblTotal, lblRouterPing, lblNetPing;
-        Button btnConnect;
+        Label lblStatus, lblDetail, lblPhone, lblUplink, lblVpn, lblXray, lblDown, lblUp, lblTotal, lblRouterPing, lblNetPing;
+        Button btnConnect, btnUnblock, btnServers;
         ComboBox cbDevice;
-        CheckBox chkAuto, chkStartup, chkDns;
+        CheckBox chkAuto, chkStartup, chkDns, chkKillSwitch;
         readonly Timer pingTimer = new Timer { Interval = 2000 };
         bool pinging;
         TextBox txtLog;
         LinkLabel lnkLog;
-        ToolStripMenuItem trayConnect, trayStatus;
+        Button btnSaveDiag, btnClearLogs;
+        ToolStripMenuItem trayConnect, trayStatus, trayUnblock;
+
+        Card vpnCard;
+        Panel pnlVpnList;
+        Label lblVpnNote;
+        Button btnPhoneScreen;
+        LinkLabel lnkRefreshVpn;
+        bool refreshingVpns;
 
         PhoneStatus lastStatus;
         DateTime lastStatusAt;
@@ -118,7 +126,7 @@ namespace PdaNext
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(480, 720);
+            ClientSize = new Size(480, 920);
             StartPosition = FormStartPosition.CenterScreen;
 
             BuildUi();
@@ -126,8 +134,10 @@ namespace PdaNext
             tray = new NotifyIcon { Icon = Program.AppIcon, Text = "PdaNext", Visible = true };
             var menu = new ContextMenuStrip();
             trayStatus = new ToolStripMenuItem("Not connected") { Enabled = false };
+            trayUnblock = new ToolStripMenuItem("Unblock internet", null, (s, e) => bridge.RequestUnblock()) { Visible = false };
             trayConnect = new ToolStripMenuItem("Connect", null, (s, e) => ToggleConnection());
             menu.Items.Add(trayStatus);
+            menu.Items.Add(trayUnblock);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(new ToolStripMenuItem("Open", null, (s, e) => ShowFromTray()));
             menu.Items.Add(trayConnect);
@@ -181,8 +191,24 @@ namespace PdaNext
 
             // Phone card
             var phone = AddCard(x, y, w, 128);
-            int col = (w - 36) / 2;
+            int col = (w - 36) / 3;
             phone.Controls.Add(MakeCaption("PHONE", 18, 14));
+
+            btnServers = new Button
+            {
+                Text = "Servers…",
+                Location = new Point(w - 18 - 84, 10),
+                Size = new Size(84, 24),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Theme.Stroke,
+                ForeColor = Theme.Text,
+                Font = Theme.UI(8.5f, FontStyle.Bold),
+                Cursor = Cursors.Hand,
+            };
+            btnServers.FlatAppearance.BorderSize = 0;
+            btnServers.Click += (s, e) => OpenServers();
+            phone.Controls.Add(btnServers);
+
             cbDevice = new ComboBox
             {
                 DropDownStyle = ComboBoxStyle.DropDownList,
@@ -202,6 +228,9 @@ namespace PdaNext
             phone.Controls.Add(MakeCaption("PHONE VPN", 18 + col, 72));
             lblVpn = MakeLabel("—", Theme.UI(10.5f, FontStyle.Bold), Theme.Text, 18 + col, 92, col);
             phone.Controls.Add(lblVpn);
+            phone.Controls.Add(MakeCaption("XRAY SERVER", 18 + 2 * col, 72));
+            lblXray = MakeLabel("Off (direct)", Theme.UI(10.5f, FontStyle.Bold), Theme.Secondary, 18 + 2 * col, 92, col);
+            phone.Controls.Add(lblXray);
             y += 140;
 
             btnConnect = new Button
@@ -218,7 +247,76 @@ namespace PdaNext
             btnConnect.FlatAppearance.BorderSize = 0;
             btnConnect.Click += (s, e) => ToggleConnection();
             Controls.Add(btnConnect);
+
+            btnUnblock = new Button
+            {
+                Text = "Unblock",
+                Location = new Point(x + (w - 10) / 2 + 10, y),
+                Size = new Size((w - 10) / 2, 54),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Theme.Card,
+                ForeColor = Theme.Text,
+                Font = Theme.UI(12f, FontStyle.Bold),
+                Cursor = Cursors.Hand,
+                Visible = false,
+            };
+            btnUnblock.FlatAppearance.BorderColor = Theme.Stroke;
+            btnUnblock.FlatAppearance.BorderSize = 1;
+            btnUnblock.Click += (s, e) => bridge.RequestUnblock();
+            Controls.Add(btnUnblock);
             y += 66;
+
+            // VPN card
+            vpnCard = AddCard(x, y, w, 192);
+            vpnCard.Controls.Add(MakeCaption("VPN APPS", 18, 14));
+
+            btnPhoneScreen = new Button
+            {
+                Text = "Phone screen",
+                Location = new Point(w - 18 - 110, 10),
+                Size = new Size(110, 26),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Theme.Stroke,
+                ForeColor = Theme.Text,
+                Font = Theme.UI(8.5f, FontStyle.Bold),
+                Cursor = Cursors.Hand,
+            };
+            btnPhoneScreen.FlatAppearance.BorderSize = 0;
+            btnPhoneScreen.Click += (s, e) =>
+            {
+                try { Scrcpy.Start(SelectedSerial); }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Could not start scrcpy: " + ex.Message, "PdaNext", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            };
+            vpnCard.Controls.Add(btnPhoneScreen);
+
+            lblVpnNote = MakeLabel("Starting another VPN stops the current one", Theme.UI(8.5f), Theme.Muted, 18, 38, w - 80);
+            vpnCard.Controls.Add(lblVpnNote);
+
+            lnkRefreshVpn = new LinkLabel
+            {
+                Text = "Refresh",
+                Location = new Point(w - 18 - 50, 38),
+                AutoSize = true,
+                LinkColor = Theme.Accent,
+                ActiveLinkColor = Theme.Accent,
+                Font = Theme.UI(8.5f),
+            };
+            lnkRefreshVpn.LinkClicked += (s, e) => RefreshVpnApps();
+            vpnCard.Controls.Add(lnkRefreshVpn);
+
+            pnlVpnList = new Panel
+            {
+                Location = new Point(18, 58),
+                Size = new Size(w - 36, 122),
+                AutoScroll = true,
+                BackColor = Color.Transparent,
+            };
+            vpnCard.Controls.Add(pnlVpnList);
+            RenderVpnApps(null, "Connect a phone to view VPN apps");
+            y += 204;
 
             // Traffic card
             var traffic = AddCard(x, y, w, 138);
@@ -248,7 +346,18 @@ namespace PdaNext
             chkDns = MakeCheck("Send all DNS to the phone (no DNS leaks outside the VPN)", x + 4, y, w);
             chkDns.Checked = AppSettings.PreventDnsLeaks;
             chkDns.CheckedChanged += (s, e) => AppSettings.PreventDnsLeaks = chkDns.Checked;
-            Controls.AddRange(new Control[] { chkAuto, chkStartup, chkDns });
+            y += 28;
+            chkKillSwitch = MakeCheck("Kill switch (block internet if the phone link drops)", x + 4, y, w);
+            chkKillSwitch.Checked = AppSettings.KillSwitch;
+            chkKillSwitch.CheckedChanged += (s, e) =>
+            {
+                AppSettings.KillSwitch = chkKillSwitch.Checked;
+                if (!chkKillSwitch.Checked)
+                {
+                    bridge.RequestUnblock();
+                }
+            };
+            Controls.AddRange(new Control[] { chkAuto, chkStartup, chkDns, chkKillSwitch });
 
             pingTimer.Tick += async (s, e) => await PingOnce();
             pingTimer.Start();
@@ -257,7 +366,7 @@ namespace PdaNext
             lnkLog = new LinkLabel
             {
                 Text = "Show log",
-                Location = new Point(x + 2, y),
+                Location = new Point(x + 2, y + 4),
                 AutoSize = true,
                 LinkColor = Theme.Accent,
                 ActiveLinkColor = Theme.Accent,
@@ -265,7 +374,39 @@ namespace PdaNext
             };
             lnkLog.LinkClicked += (s, e) => ToggleLog();
             Controls.Add(lnkLog);
-            y += 26;
+
+            btnClearLogs = new Button
+            {
+                Text = "Clear logs",
+                Location = new Point(x + w - 130 - 100 - 8, y),
+                Size = new Size(100, 26),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Theme.Card,
+                ForeColor = Theme.Text,
+                Font = Theme.UI(8.5f),
+                Cursor = Cursors.Hand,
+            };
+            btnClearLogs.FlatAppearance.BorderSize = 1;
+            btnClearLogs.FlatAppearance.BorderColor = Theme.Stroke;
+            btnClearLogs.Click += (s, e) => ClearLogsClicked();
+            Controls.Add(btnClearLogs);
+
+            btnSaveDiag = new Button
+            {
+                Text = "Save diagnostics",
+                Location = new Point(x + w - 130, y),
+                Size = new Size(130, 26),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Theme.Card,
+                ForeColor = Theme.Text,
+                Font = Theme.UI(8.5f),
+                Cursor = Cursors.Hand,
+            };
+            btnSaveDiag.FlatAppearance.BorderSize = 1;
+            btnSaveDiag.FlatAppearance.BorderColor = Theme.Stroke;
+            btnSaveDiag.Click += async (s, e) => await SaveDiagnosticsAsync();
+            Controls.Add(btnSaveDiag);
+            y += 32;
 
             txtLog = new TextBox
             {
@@ -344,6 +485,7 @@ namespace PdaNext
                 case BridgeState.Connecting: title = "Connecting…"; color = Theme.Wait; break;
                 case BridgeState.Waiting: title = "Waiting for phone"; color = Theme.Wait; break;
                 case BridgeState.Error: title = "Problem"; color = Theme.Error; break;
+                case BridgeState.Blocked: title = "Kill switch active"; color = Theme.Error; break;
                 default: title = "Not connected"; color = Theme.Off; break;
             }
             bool changed = lblStatus.Text != title;
@@ -357,11 +499,22 @@ namespace PdaNext
                 lblDown.Text = lblUp.Text = "0 KB/s";
                 lastStatus = null;
             }
+            if (btnUnblock != null)
+            {
+                bool blocked = state == BridgeState.Blocked;
+                btnUnblock.Visible = blocked;
+                int w = ClientSize.Width - 36;
+                btnConnect.Width = blocked ? (w - 10) / 2 : w;
+            }
+            if (trayUnblock != null)
+            {
+                trayUnblock.Visible = state == BridgeState.Blocked;
+            }
             RenderButton();
-            if (changed && (state == BridgeState.Connected || state == BridgeState.Error || (state == BridgeState.Waiting && message.StartsWith("Phone unplugged"))))
+            if (changed && (state == BridgeState.Connected || state == BridgeState.Error || state == BridgeState.Blocked || (state == BridgeState.Waiting && message.StartsWith("Phone unplugged"))))
             {
                 tray.ShowBalloonTip(3000, "PdaNext: " + title, message,
-                    state == BridgeState.Error ? ToolTipIcon.Error : ToolTipIcon.Info);
+                    state == BridgeState.Error || state == BridgeState.Blocked ? ToolTipIcon.Warning : ToolTipIcon.Info);
             }
         }
 
@@ -371,6 +524,9 @@ namespace PdaNext
             lblUplink.Text = s.UplinkDisplay;
             lblVpn.Text = s.VpnActive ? "On (PC uses it too)" : "Off";
             lblVpn.ForeColor = s.VpnActive ? Theme.On : Theme.Secondary;
+            bool xray = !string.IsNullOrEmpty(s.XrayProfile);
+            lblXray.Text = xray ? s.XrayProfile : "Off (direct)";
+            lblXray.ForeColor = xray ? Theme.On : Theme.Secondary;
 
             var now = DateTime.UtcNow;
             if (lastStatus != null)
@@ -402,6 +558,122 @@ namespace PdaNext
             lblPhone.Visible = list.Count <= 1;
             if (list.Count == 0) lblPhone.Text = "No phone found";
             else if (list.Count == 1) lblPhone.Text = list[0].DisplayName + (list[0].Ready ? "" : "  (" + list[0].State + ")");
+
+            RefreshVpnApps();
+        }
+
+        async void RefreshVpnApps()
+        {
+            if (refreshingVpns) return;
+            string serial = SelectedSerial;
+            if (string.IsNullOrEmpty(serial))
+            {
+                RenderVpnApps(null, "Connect a phone to view VPN apps");
+                return;
+            }
+
+            refreshingVpns = true;
+            RenderVpnApps(null, "Scanning VPN apps…");
+            try
+            {
+                var apps = await Adb.ListVpnAppsAsync(serial);
+                Ui(() => RenderVpnApps(apps, apps.Count == 0 ? "No VPN apps found on phone" : null));
+            }
+            catch (Exception ex)
+            {
+                Ui(() => RenderVpnApps(null, "Error scanning VPN apps: " + ex.Message));
+            }
+            finally
+            {
+                refreshingVpns = false;
+            }
+        }
+
+        void RenderVpnApps(List<VpnApp> apps, string message)
+        {
+            pnlVpnList.SuspendLayout();
+            pnlVpnList.Controls.Clear();
+
+            if (!string.IsNullOrEmpty(message))
+            {
+                var lblMsg = MakeLabel(message, Theme.UI(9f), Theme.Muted, 4, 10, pnlVpnList.Width - 10);
+                pnlVpnList.Controls.Add(lblMsg);
+                pnlVpnList.ResumeLayout();
+                return;
+            }
+
+            if (apps == null || apps.Count == 0)
+            {
+                var lblMsg = MakeLabel("No VPN apps found on phone", Theme.UI(9f), Theme.Muted, 4, 10, pnlVpnList.Width - 10);
+                pnlVpnList.Controls.Add(lblMsg);
+                pnlVpnList.ResumeLayout();
+                return;
+            }
+
+            int rowY = 0;
+            int rowW = pnlVpnList.ClientSize.Width;
+
+            foreach (var app in apps)
+            {
+                var row = new Panel
+                {
+                    Location = new Point(0, rowY),
+                    Size = new Size(rowW, 44),
+                    BackColor = app.IsActive ? Color.FromArgb(28, 38, 60) : Color.Transparent,
+                };
+
+                int textX = 8;
+                if (app.IsActive)
+                {
+                    var dot = new Dot
+                    {
+                        Location = new Point(8, 16),
+                        Size = new Size(10, 10),
+                        DotColor = Theme.On
+                    };
+                    row.Controls.Add(dot);
+                    textX = 24;
+                }
+
+                var lblName = MakeLabel(app.DisplayName, Theme.UI(9.5f, FontStyle.Bold), app.IsActive ? Theme.On : Theme.Text, textX, 4, rowW - textX - 70);
+                row.Controls.Add(lblName);
+
+                string subText = app.IsActive ? $"{app.Package}  •  Active VPN" : app.Package;
+                var lblPkg = MakeLabel(subText, Theme.UI(8f), app.IsActive ? Theme.Secondary : Theme.Muted, textX, 23, rowW - textX - 70);
+                row.Controls.Add(lblPkg);
+
+                var btnOpen = new Button
+                {
+                    Text = "Open",
+                    Location = new Point(rowW - 64, 8),
+                    Size = new Size(58, 28),
+                    FlatStyle = FlatStyle.Flat,
+                    BackColor = app.IsActive ? Theme.Start : Theme.Stroke,
+                    ForeColor = Color.White,
+                    Font = Theme.UI(8.5f, FontStyle.Bold),
+                    Cursor = Cursors.Hand,
+                };
+                btnOpen.FlatAppearance.BorderSize = 0;
+                string pkg = app.Package;
+                string label = app.DisplayName;
+                btnOpen.Click += (s, e) =>
+                {
+                    try
+                    {
+                        Scrcpy.Start(SelectedSerial, pkg, label);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show("Could not start scrcpy: " + ex.Message, "PdaNext", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                };
+                row.Controls.Add(btnOpen);
+
+                pnlVpnList.Controls.Add(row);
+                rowY += 46;
+            }
+
+            pnlVpnList.ResumeLayout();
         }
 
         /// <summary>Real ICMP pings through the adapter: to the phone itself, and to the internet via the phone.</summary>
@@ -435,11 +707,76 @@ namespace PdaNext
             catch { return "—"; }
         }
 
+        void OpenServers()
+        {
+            if (bridge.State != BridgeState.Connected)
+            {
+                MessageBox.Show(this, "Connect the phone first: servers are stored on the phone.", "PdaNext",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            using (var form = new ServersForm(bridge.Port)) form.ShowDialog(this);
+        }
+
         void ToggleLog()
         {
             txtLog.Visible = !txtLog.Visible;
             lnkLog.Text = txtLog.Visible ? "Hide log" : "Show log";
-            ClientSize = new Size(ClientSize.Width, txtLog.Visible ? 720 + 160 : 720);
+            ClientSize = new Size(ClientSize.Width, txtLog.Visible ? 920 + 160 : 920);
+        }
+
+        async System.Threading.Tasks.Task SaveDiagnosticsAsync()
+        {
+            using (var dlg = new SaveFileDialog())
+            {
+                dlg.Title = "Save Diagnostics";
+                dlg.Filter = "Zip Archive (*.zip)|*.zip";
+                dlg.FileName = "pdanext-diagnostics-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".zip";
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+                btnSaveDiag.Enabled = false;
+                string prevText = btnSaveDiag.Text;
+                btnSaveDiag.Text = "Saving…";
+                try
+                {
+                    string target = dlg.FileName;
+                    int port = bridge.Port;
+                    string cachedStatus = bridge.LastStatus?.RawJson ?? lastStatus?.RawJson;
+                    await System.Threading.Tasks.Task.Run(() => Diagnostics.Collect(target, port, cachedStatus));
+                    MessageBox.Show(this, "Diagnostics saved to:\n" + target, "Diagnostics Saved", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, "Failed to save diagnostics: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                finally
+                {
+                    btnSaveDiag.Enabled = true;
+                    btnSaveDiag.Text = prevText;
+                }
+            }
+        }
+
+        void ClearLogsClicked()
+        {
+            var confirm = MessageBox.Show(
+                this,
+                "Are you sure you want to delete all log files?",
+                "Clear logs",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question
+            );
+            if (confirm != DialogResult.Yes) return;
+
+            int deleted = FileLogger.ClearLogs(FileLogger.LogDirectory);
+            if (txtLog != null && txtLog.Visible) txtLog.Text = "";
+            MessageBox.Show(
+                this,
+                $"Deleted {deleted} log file(s).",
+                "Clear logs",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information
+            );
         }
 
         void AppendLog(string line)
@@ -482,6 +819,7 @@ namespace PdaNext
         {
             tray.Visible = false;
             tray.Dispose();
+            Scrcpy.Stop();
             base.OnFormClosed(e);
         }
 
