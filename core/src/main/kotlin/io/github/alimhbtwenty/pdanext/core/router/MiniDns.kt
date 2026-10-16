@@ -55,6 +55,52 @@ object MiniDns {
         return response(query, q, 2, emptyList())
     }
 
+    data class DnsAnswer(val address: InetAddress, val ttlSeconds: Long)
+
+    fun parseAnswers(response: ByteArray): List<DnsAnswer> {
+        if (response.size < 12) return emptyList()
+        val qdCount = IpPacket.u16(response, 4)
+        val anCount = IpPacket.u16(response, 6)
+        if (anCount == 0) return emptyList()
+        var i = 12
+        for (q in 0 until qdCount) {
+            i = skipName(response, i)
+            if (i < 0 || i + 4 > response.size) return emptyList()
+            i += 4 // QTYPE, QCLASS
+        }
+        val result = ArrayList<DnsAnswer>()
+        for (a in 0 until anCount) {
+            i = skipName(response, i)
+            if (i < 0 || i + 10 > response.size) break
+            val type = IpPacket.u16(response, i)
+            val ttl = (IpPacket.u16(response, i + 4).toLong() shl 16) or (IpPacket.u16(response, i + 6).toLong() and 0xFFFFL)
+            val rdLen = IpPacket.u16(response, i + 8)
+            i += 10
+            if (i + rdLen > response.size) break
+            if (type == TYPE_A && rdLen == 4) {
+                val bytes = response.copyOfRange(i, i + 4)
+                result += DnsAnswer(InetAddress.getByAddress(bytes), ttl)
+            } else if (type == TYPE_AAAA && rdLen == 16) {
+                val bytes = response.copyOfRange(i, i + 16)
+                result += DnsAnswer(InetAddress.getByAddress(bytes), ttl)
+            }
+            i += rdLen
+        }
+        return result
+    }
+
+    private fun skipName(buf: ByteArray, offset: Int): Int {
+        var i = offset
+        while (i < buf.size) {
+            val len = buf[i].toInt() and 0xFF
+            if (len == 0) return i + 1
+            if (len and 0xC0 == 0xC0) return i + 2
+            if (len and 0xC0 != 0) return -1
+            i += 1 + len
+        }
+        return -1
+    }
+
     private fun response(query: ByteArray, q: Question, rcode: Int, addresses: List<InetAddress>): ByteArray {
         val out = ByteArrayOutputStream(q.end + addresses.size * 28)
         out.write(query, 0, 2) // id

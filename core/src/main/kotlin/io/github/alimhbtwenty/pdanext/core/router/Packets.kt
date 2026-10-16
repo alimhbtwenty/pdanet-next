@@ -195,6 +195,19 @@ object PacketBuilder {
         return ip(from, original.src, proto, l4)
     }
 
+    /** "Port unreachable" (ICMPv4 type 3 code 3 / ICMPv6 type 1 code 4) from [from] for [original]. */
+    fun portUnreachable(from: InetAddress, original: IpPacket): ByteArray {
+        val v6 = original.isV6
+        val quote = original.buf.copyOfRange(0, minOf(original.length, if (v6) 1232 else 548))
+        val l4 = ByteArray(8 + quote.size)
+        l4[0] = (if (v6) 1 else 3).toByte()
+        l4[1] = (if (v6) 4 else 3).toByte()
+        quote.copyInto(l4, 8)
+        val proto = if (v6) PROTO_ICMPV6 else PROTO_ICMP
+        put16(l4, 2, if (v6) transportChecksum(from, original.src, proto, l4) else finish(sum(l4, 0, l4.size, 0)))
+        return ip(from, original.src, proto, l4)
+    }
+
     fun ip(src: InetAddress, dst: InetAddress, proto: Int, l4: ByteArray, ttl: Int = DEFAULT_TTL): ByteArray {
         val s = src.address
         val d = dst.address

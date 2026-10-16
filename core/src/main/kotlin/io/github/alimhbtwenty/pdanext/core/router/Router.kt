@@ -52,10 +52,31 @@ data class FlowKey(val pc: InetAddress, val pcPort: Int, val remote: InetAddress
 class Router(
     val config: RouterConfig,
     private val sendToPc: (ByteArray) -> Unit,
-    private val platform: RouterPlatform,
+    val direct: Upstream,
+    val tunnel: Upstream? = null,
+    val policy: BypassPolicy = BypassPolicy(),
     val stats: RelayStats,
+    private val platform: RouterPlatform? = (direct as? DirectUpstream)?.platform,
     private val log: (String) -> Unit = {},
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
+    constructor(
+        config: RouterConfig,
+        sendToPc: (ByteArray) -> Unit,
+        platform: RouterPlatform,
+        stats: RelayStats,
+        log: (String) -> Unit = {},
+    ) : this(
+        config = config,
+        sendToPc = sendToPc,
+        direct = DirectUpstream(platform),
+        tunnel = null,
+        policy = BypassPolicy(),
+        stats = stats,
+        platform = platform,
+        log = log,
+    )
+
     internal val executor: ExecutorService = Executors.newCachedThreadPool(daemon("router"))
     internal val timer: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor(daemon("router-timer"))
     internal val tcp = ConcurrentHashMap<FlowKey, TcpSession>()
@@ -70,6 +91,11 @@ class Router(
 
     init {
         timer.scheduleWithFixedDelay({ runCatching { tick() } }, 200, 200, TimeUnit.MILLISECONDS)
+    }
+
+    internal fun selectUpstream(dst: InetAddress): Upstream {
+        val route = policy.route(dst, clock())
+        return if (route == Route.DIRECT || tunnel == null) direct else tunnel
     }
 
     fun onPacket(buf: ByteArray, length: Int) {
@@ -101,11 +127,25 @@ class Router(
                 val pc = p.src
                 val pcPort = p.srcPort
                 executor.execute {
-                    val type = MiniDns.parseQuestion(query)?.type
+                    val question = MiniDns.parseQuestion(query)
+                    val type = question?.type
+                    val isDomestic = question != null && policy.isDomesticName(question.name)
                     val answer = if (config.ipv4OnlyDns && (type == MiniDns.TYPE_AAAA || type == MiniDns.TYPE_HTTPS)) {
                         MiniDns.noData(query)
                     } else {
-                        runCatching { platform.resolveDns(query) }.getOrNull() ?: MiniDns.serverFailure(query)
+                        val tun = tunnel
+                        if (isDomestic || tun == null) {
+                            val resp = runCatching { direct.resolveDns(query) }.getOrNull()
+                            if (resp != null && isDomestic) {
+                                val answers = MiniDns.parseAnswers(resp)
+                                for (ans in answers) {
+                                    policy.learn(listOf(ans.address), ans.ttlSeconds, clock())
+                                }
+                            }
+                            resp ?: MiniDns.serverFailure(query)
+                        } else {
+                            runCatching { tun.resolveDns(query) }.getOrNull() ?: MiniDns.serverFailure(query)
+                        }
                     }
                     if (answer != null) send(PacketBuilder.udp(gateway, 53, pc, pcPort, answer, 0, answer.size))
                 }
@@ -132,15 +172,17 @@ class Router(
     private fun handleIcmp(p: IpPacket) {
         if (!isEchoRequest(p)) return
         if (activePings.get() >= MAX_PINGS) return
+        val remote = p.dst
+        if (tunnel != null && policy.route(remote, clock()) == Route.TUNNEL) return
+        val pl = platform ?: return
         val payload = p.copyOf(p.icmpDataOffset, p.icmpDataLength)
         val id = p.icmpId
         val seq = p.icmpSeq
-        val remote = p.dst
         val pc = p.src
         activePings.incrementAndGet()
         executor.execute {
             try {
-                if (platform.ping(remote, payload, 4000)) {
+                if (pl.ping(remote, payload, 4000)) {
                     send(PacketBuilder.icmpEcho(remote, pc, true, id, seq, payload, ttl = 56))
                 }
             } catch (e: Exception) {
@@ -157,8 +199,10 @@ class Router(
         val key = FlowKey(p.src, p.srcPort, p.dst, p.dstPort)
         var flow = udp[key]
         if (flow == null || flow.closed) {
+            val upstream = selectUpstream(p.dst)
             flow = try {
-                UdpFlow(this, key)
+                val datagram = upstream.openUdp(p.dst, p.dstPort)
+                UdpFlow(this, key, datagram)
             } catch (e: Exception) {
                 log("udp $key: ${e.message}")
                 send(PacketBuilder.unreachable(gatewayFor(p), p))
@@ -185,7 +229,8 @@ class Router(
             return
         }
         if (flags and TCP_SYN != 0 && flags and TCP_ACK == 0) {
-            val s = TcpSession(this, key, p)
+            val upstream = selectUpstream(p.dst)
+            val s = TcpSession(this, key, p, upstream)
             if (tcp.putIfAbsent(key, s) == null) {
                 stats.activeTcp.incrementAndGet()
                 stats.totalConnections.incrementAndGet()

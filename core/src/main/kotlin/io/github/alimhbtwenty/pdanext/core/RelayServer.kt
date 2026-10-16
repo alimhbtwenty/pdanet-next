@@ -1,10 +1,12 @@
 package io.github.alimhbtwenty.pdanext.core
 
+import io.github.alimhbtwenty.pdanext.core.router.BypassPolicy
 import io.github.alimhbtwenty.pdanext.core.router.JvmRouterPlatform
 import io.github.alimhbtwenty.pdanext.core.router.Router
 import io.github.alimhbtwenty.pdanext.core.router.RouterConfig
 import io.github.alimhbtwenty.pdanext.core.router.RouterLink
 import io.github.alimhbtwenty.pdanext.core.router.RouterPlatform
+import io.github.alimhbtwenty.pdanext.core.router.Upstream
 import java.io.BufferedInputStream
 import java.io.IOException
 import java.io.InputStream
@@ -36,6 +38,8 @@ class RelayServer(
     private val statusExtras: () -> Map<String, Any?> = { emptyMap() },
     private val routerConfig: RouterConfig = RouterConfig(),
     private val routerPlatform: RouterPlatform = JvmRouterPlatform(),
+    private val tunnelUpstream: Upstream? = null,
+    private val bypassPolicy: BypassPolicy = BypassPolicy(),
 ) {
     val stats = RelayStats()
 
@@ -122,7 +126,7 @@ class RelayServer(
             }
             input.reset()
             when (String(head, Charsets.US_ASCII)) {
-                RouterLink.MAGIC -> RouterLink(this, client, input, routerConfig, routerPlatform).run()
+                RouterLink.MAGIC -> RouterLink(this, client, input, routerConfig, routerPlatform, tunnelUpstream, bypassPolicy).run()
                 "GET " -> serveHttp(input, client.getOutputStream())
             }
         } catch (e: Exception) {
