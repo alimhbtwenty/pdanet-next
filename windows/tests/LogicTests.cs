@@ -527,6 +527,18 @@ Test("Scrcpy: values from the phone cannot inject arguments", () =>
     Equal("--window-title \"Evil --record y.mp4 - PdaNext\" --stay-awake", args);
 });
 
+Test("Scrcpy: phones that refuse injected input get a hardware (UHID) keyboard and mouse", () =>
+{
+    // What Xiaomi answers without "USB debugging (Security settings)".
+    Equal(true, Scrcpy.IsInjectionDenied(
+        "Exception occurred while executing 'keyevent':\njava.lang.SecurityException: Injecting to another application requires INJECT_EVENTS permission"), "denied");
+    Equal(false, Scrcpy.IsInjectionDenied(""), "allowed: no output");
+    Equal(false, Scrcpy.IsInjectionDenied(null), "no answer");
+
+    Equal("--serial R58N12ABCDE --window-title \"Phone - PdaNext (Alt releases the mouse)\" --keyboard=uhid --mouse=uhid --stay-awake",
+        Scrcpy.BuildArguments("R58N12ABCDE", null, null, uhidInput: true), "uhid arguments");
+});
+
 Console.WriteLine($"--- {passed} passed, {failed} failed ---");
 return failed == 0 ? 0 : 1;
 

@@ -83,7 +83,7 @@ namespace PdaNext
             {
                 StopInternal();
 
-                string args = BuildArguments(serial, package, appLabel);
+                string args = BuildArguments(serial, package, appLabel, uhidInput: InputInjectionBlocked(serial));
                 var psi = new ProcessStartInfo(ExePath, args)
                 {
                     UseShellExecute = false,
@@ -121,10 +121,35 @@ namespace PdaNext
         }
 
         /// <summary>
-        /// Builds the scrcpy command line arguments:
-        /// --serial <phone> [--start-app=<package>] --window-title "<title>" --stay-awake
+        /// True when the phone refuses injected input (Xiaomi without "USB debugging (Security settings)",
+        /// which needs a SIM card to enable): scrcpy would only show the screen. Sends KEYCODE_UNKNOWN,
+        /// which does nothing.
         /// </summary>
-        public static string BuildArguments(string serial, string package = null, string appLabel = null)
+        static bool InputInjectionBlocked(string serial)
+        {
+            try
+            {
+                var r = string.IsNullOrEmpty(serial)
+                    ? Adb.Run("shell input keyevent 0", 5000)
+                    : Adb.Run(serial, "shell input keyevent 0", 5000);
+                return IsInjectionDenied(r.Output);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static bool IsInjectionDenied(string adbOutput) =>
+            adbOutput != null && adbOutput.IndexOf("INJECT_EVENTS", StringComparison.Ordinal) >= 0;
+
+        /// <summary>
+        /// Builds the scrcpy command line arguments:
+        /// --serial <phone> [--start-app=<package>] --window-title "<title>" [--keyboard=uhid --mouse=uhid] --stay-awake
+        /// With uhidInput, scrcpy acts as a hardware keyboard and mouse (Linux UHID), which needs no
+        /// INJECT_EVENTS permission; the mouse is captured by the window and Alt releases it.
+        /// </summary>
+        public static string BuildArguments(string serial, string package = null, string appLabel = null, bool uhidInput = false)
         {
             var sb = new System.Text.StringBuilder();
 
@@ -144,7 +169,9 @@ namespace PdaNext
                 ? $"{label} - PdaNext"
                 : "Phone - PdaNext";
 
+            if (uhidInput) title += " (Alt releases the mouse)";
             sb.Append("--window-title \"").Append(title).Append("\" ");
+            if (uhidInput) sb.Append("--keyboard=uhid --mouse=uhid ");
             sb.Append("--stay-awake");
 
             return sb.ToString().Trim();
