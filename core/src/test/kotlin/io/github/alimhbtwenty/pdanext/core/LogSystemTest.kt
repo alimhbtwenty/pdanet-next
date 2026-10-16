@@ -191,8 +191,8 @@ class LogSystemTest {
         val server = RelayServer(port = 0).also { it.start() }
         val actualPort = (server.javaClass.getDeclaredField("serverSocket").apply { isAccessible = true }.get(server) as java.net.ServerSocket).localPort
         try {
-            server.logBuffer.log(LogLevel.INFO, LogSource.LINK, "entry-one")
-            server.logBuffer.log(LogLevel.WARN, LogSource.DNS, "entry-two")
+            val e1 = server.logBuffer.log(LogLevel.INFO, LogSource.LINK, "entry-one")
+            val e2 = server.logBuffer.log(LogLevel.WARN, LogSource.DNS, "entry-two")
 
             // 1. GET /log without since
             Socket("127.0.0.1", actualPort).use { s ->
@@ -206,15 +206,15 @@ class LogSystemTest {
                     val parts = line!!.split(":", limit = 2)
                     if (parts.size == 2) headers[parts[0].trim().lowercase()] = parts[1].trim()
                 }
-                assertEquals("2", headers["x-log-seq"])
+                assertEquals(e2.sequence.toString(), headers["x-log-seq"])
                 val body = reader.readText()
                 assertTrue(body.contains("entry-one"))
                 assertTrue(body.contains("entry-two"))
             }
 
-            // 2. GET /log?since=1
+            // 2. GET /log?since=<e1.sequence>
             Socket("127.0.0.1", actualPort).use { s ->
-                s.getOutputStream().write("GET /log?since=1 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".toByteArray())
+                s.getOutputStream().write("GET /log?since=${e1.sequence} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".toByteArray())
                 val reader = BufferedReader(InputStreamReader(s.getInputStream()))
                 val status = reader.readLine()
                 assertEquals("HTTP/1.1 200 OK", status)
@@ -224,7 +224,7 @@ class LogSystemTest {
                     val parts = line!!.split(":", limit = 2)
                     if (parts.size == 2) headers[parts[0].trim().lowercase()] = parts[1].trim()
                 }
-                assertEquals("2", headers["x-log-seq"])
+                assertEquals(e2.sequence.toString(), headers["x-log-seq"])
                 val body = reader.readText()
                 assertFalse(body.contains("entry-one"))
                 assertTrue(body.contains("entry-two"))
@@ -260,10 +260,10 @@ class LogSystemTest {
         val tempDir = File.createTempFile("pdanext-failure-parts", "").apply { delete(); mkdirs() }
         try {
             val failureLogger = FailureFileLogger(tempDir, baseName = "failures.log", maxBytes = 100)
-            // Line length ~60 bytes each
-            val line1 = "Failure line 1: 012345678901234567890123456789"
-            val line2 = "Failure line 2: 012345678901234567890123456789"
-            val line3 = "Failure line 3: 012345678901234567890123456789"
+            // Line length 70+ bytes each to exceed 100 maxBytes on subsequent writes
+            val line1 = "Failure line 1: " + "0123456789".repeat(6)
+            val line2 = "Failure line 2: " + "0123456789".repeat(6)
+            val line3 = "Failure line 3: " + "0123456789".repeat(6)
 
             failureLogger.append(line1)
             failureLogger.append(line2) // should rotate to failures-2.log
