@@ -60,13 +60,44 @@ Technical field notes: the `networking` skill.
 | Not possible w/o root | traceroute TTL-exceeded, GRE/raw ESP, other devices on hotspot without an app | stated to the owner |
 | Windows stack | .NET Framework 4.8 (in-box), x64, `requireAdministrator`, logon task for autostart | no runtime install |
 
+## Current work (v3.1, since 2026-10-14) - read this first
+- **Work branch:** `ccr-65b98b7a-8b3t20` (not merged to `main`). Design: `docs/decisions/0001-xray-engine-and-iran-bypass.md`.
+- **Owner's goals for v3.1** (their words, decided; do not relitigate):
+  - Embed the **Xray engine** in the phone app; the phone only carries the PC's traffic to a VPN server
+    with the owner's configs (vless, vmess, trojan, ws/grpc/xhttp/reality). **No `VpnService`, no proxy,
+    no TUN, no local listener**; Xray is called in-process (`core.Dial`/`core.DialUDP`), outbounds only.
+  - **Iranian sites bypass inside PdaNext**: `BypassPolicy` (Iranian IPv4 list, `.ir`, owner's list,
+    addresses learned from direct DNS answers) sends them out of the phone's own network. DNS split.
+    No fallback to direct when the tunnel is down.
+  - Configs managed from the PC (list, switch, latency test, import links).
+  - **Logging system** and **kill switch**.
+  - Later: "any VPN app" mode: the PC lists the phone's VPN apps (`cmd package query-services -a
+    android.net.VpnService`) and opens one in an embedded **scrcpy** (`--start-app=<pkg>`, `ADB` env =
+    PdaNext's adb). In that mode the bypass cannot be done by PdaNext (v2rayNG never calls `allowBypass()`).
+- **Way of working:** the owner wants **Antigravity agents to do the heavy work** and Claude only to
+  supervise (save Claude credits). Rules for agents: `AGENTS.md`, `.agent/rules/pdanext.md`, `GEMINI.md`.
+  Agents work on `antigravity/<role>-<date>` branches through **draft PRs into `ccr-65b98b7a-8b3t20`**;
+  CI (`release.yml`) runs on every push, including the Linux e2e and the Windows build/tests.
+  Claude subscribes to the PRs, reviews (run the tests, read the diff), comments on the PR, and merges
+  the branches into the work branch when green. Never merge an agent branch unreviewed.
+- **State 2026-10-16:** done on the work branch: `BypassPolicy` + tests, ADR-0001, research docs,
+  agent rules. Agent branches `bypass-wiring`, `logging`, `kill-switch` (2026-10-16) all have real
+  defects, listed in `docs/reviews/antigravity/claude-triage-2026-10-16.md`; the agents were asked to
+  fix them through draft PRs. Merge order after fixes: bypass-wiring, logging, kill-switch. Next: the
+  Xray Go bridge (gomobile AAR in CI, libXray MIT for links/latency), Android `XrayUpstream`, PC config UI,
+  Iranian IP list generated in CI, then the VPN picker + scrcpy agent.
+- **Remote Control:** the laptop (`DESKTOP-RGERDBN`) can run `claude remote-control`
+  (`claude.cmd` if PowerShell blocks scripts), but a cloud session needs the owner's trusted-device
+  approval to start sessions there; the owner chose the GitHub PR loop instead.
+- Laptop: Windows, VS Code with Claude Code, Antigravity, `gh` logged in as `alimhbtwenty`, repo at
+  `C:\Users\Alimhb\PdaNext\pdanet-next`. The laptop's internet comes through PdaNext itself.
+
 ## Open work / ideas
 - **Wi-Fi / hotspot mode** (owner wants it in a later version): PC app connects to the phone's Wi-Fi
-  IP instead of adb; phone listens on Wi-Fi with pairing (QR/PIN challenge); host route for the
-  phone via Wi-Fi; prefer `LocalOnlyHotspot` (no carrier tethering check, unverified); router code
-  unchanged.
-- Kill switch (keep PC offline when the link drops) - offered, not requested yet.
+  IP instead of adb; pairing (QR/PIN); prefer `LocalOnlyHotspot` (unverified); router code unchanged.
 - Code signing for the MSI (SmartScreen warns today).
+- Efficiency audit (wake/Wi-Fi locks only while a PC is attached, fewer adb spawns):
+  `docs/plans/v3.1-bypass-v2ray-efficiency.md` section 4.
 - Real-device test pass; then tune MTU/window if throughput is low.
 
 ## Environment gotchas (Claude Code cloud container)
