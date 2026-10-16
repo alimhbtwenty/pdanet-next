@@ -15,6 +15,9 @@ env:
   SCRCPY_VERSION: "5.0.1"
   SCRCPY_ZIP: "scrcpy-win64-v5.0.1.zip"
   SCRCPY_SHA256: "b12a2c4ee8be317422451fc7dcf8ee20a71b5ea7ef9ad73ddd825a25316227a5"
+  GO_VERSION: "1.27.2"
+  # Same golang.org/x/mobile as xraybridge/go.mod (gomobile and the bind package must match).
+  GOMOBILE_VERSION: "v0.0.0-20260908204917-8b95e45f8d3e"
 
 jobs:
   relay-tests:
@@ -47,8 +50,36 @@ jobs:
           chmod +x core/build/install/core/bin/core tests/e2e/run-router-e2e.sh
           sudo env "PATH=$PATH" "JAVA_HOME=$JAVA_HOME" tests/e2e/run-router-e2e.sh
 
+  xray-aar:
+    name: Xray bridge (Go tests + AAR)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "${{ env.GO_VERSION }}", cache-dependency-path: xraybridge/go.sum }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - name: Go tests
+        working-directory: xraybridge
+        run: |
+          go vet ./...
+          go test ./...
+      - name: Build AAR
+        working-directory: xraybridge
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          go install golang.org/x/mobile/cmd/gomobile@$GOMOBILE_VERSION golang.org/x/mobile/cmd/gobind@$GOMOBILE_VERSION
+          gomobile init
+          # Same flags as libXray: Xray deps use go:linkname into net (checklinkname=0); 16 KB pages for Android 15+.
+          gomobile bind -target=android/arm64,android/arm -androidapi 24 -trimpath \
+            -ldflags="-checklinkname=0 -s -w -buildid= -extldflags=-Wl,-z,max-page-size=16384" -o xraybridge.aar .
+          ls -l xraybridge.aar
+      - uses: actions/upload-artifact@v4
+        with: { name: xraybridge-aar, path: xraybridge/xraybridge.aar }
+
   android:
     name: Android APK
+    needs: xray-aar
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,7 +99,10 @@ jobs:
             echo "Error: expected at least 500 ranges, got $count" >&2
             exit 1
           fi
+      - uses: actions/download-artifact@v4
+        with: { name: xraybridge-aar, path: android/app/libs }
       - run: gradle -p android :app:assembleRelease --stacktrace
+      - run: ls -l android/app/build/outputs/apk/release/app-release.apk
       - run: cp android/app/build/outputs/apk/release/app-release.apk PdaNext.apk
       - uses: actions/upload-artifact@v4
         with: { name: android-apk, path: PdaNext.apk }

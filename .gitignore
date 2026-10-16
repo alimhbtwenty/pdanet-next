@@ -9,3 +9,6 @@ windows/out/
 android/app/src/main/assets/iran-ipv4.txt
 __pycache__/
 *.pyc
+
+# Xray bridge AAR, built by CI from xraybridge/
+android/app/libs/

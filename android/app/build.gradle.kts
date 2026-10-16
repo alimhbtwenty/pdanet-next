@@ -38,6 +38,8 @@ android {
 
 dependencies {
     implementation(project(":core"))
+    // Xray engine (xraybridge/, gomobile). Built by CI into libs/; never committed.
+    implementation(files("libs/xraybridge.aar"))
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
