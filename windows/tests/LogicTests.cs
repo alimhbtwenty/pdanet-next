@@ -97,16 +97,8 @@ Test("kill switch firewall: generated command strings", () =>
     Equal(true, blockCmd.Contains("-Action Block"), "has Action");
     Equal(true, blockCmd.Contains("-Profile Any"), "has Profile");
 
-    string allowAdbCmd = KillSwitchFirewall.BuildAddAllowAdbCommand("C:\\Tools\\adb.exe");
-    Equal(true, allowAdbCmd.Contains("-DisplayName 'PdaNext Kill Switch - Allow ADB'"), "adb DisplayName");
-    Equal(true, allowAdbCmd.Contains("-Group 'PdaNext Kill Switch'"), "adb Group");
-    Equal(true, allowAdbCmd.Contains("-Program 'C:\\Tools\\adb.exe'"), "adb Program");
-    Equal(true, allowAdbCmd.Contains("-Action Allow"), "adb Action");
-
-    string allowLoopbackCmd = KillSwitchFirewall.BuildAddAllowLoopbackCommand();
-    Equal(true, allowLoopbackCmd.Contains("-DisplayName 'PdaNext Kill Switch - Allow Loopback'"), "loopback DisplayName");
-    Equal(true, allowLoopbackCmd.Contains("-RemoteAddress '127.0.0.1','::1'"), "loopback RemoteAddress");
-    Equal(true, allowLoopbackCmd.Contains("-Action Allow"), "loopback Action");
+    string queryCmd = KillSwitchFirewall.BuildQueryRulesCommand();
+    Equal(true, queryCmd.Contains("Get-NetFirewallRule -Group 'PdaNext Kill Switch'"), "query Group");
 
     string removeCmd = KillSwitchFirewall.BuildRemoveRulesCommand();
     Equal(true, removeCmd.Contains("Remove-NetFirewallRule"), "remove command");
@@ -124,15 +116,13 @@ Test("kill switch firewall: apply and remove sequence", () =>
     };
 
     var logs = new List<string>();
-    KillSwitchFirewall.Apply(logs.Add, "C:\\Tools\\adb.exe");
+    KillSwitchFirewall.Apply(logs.Add);
 
     Equal(true, KillSwitchFirewall.IsActive, "IsActive after Apply");
-    // Should have run remove first to clear old rules, then 3 add rules
-    Equal(4, executed.Count, "4 commands on apply");
+    // Removes old rules first, then adds the single block rule (allow rules cannot override a block)
+    Equal(2, executed.Count, "2 commands on apply");
     Equal(true, executed[0].StartsWith("Remove-NetFirewallRule"), "1st is remove");
     Equal(true, executed[1].Contains("-Action Block"), "2nd is block rule");
-    Equal(true, executed[2].Contains("C:\\Tools\\adb.exe"), "3rd is allow adb");
-    Equal(true, executed[3].Contains("'127.0.0.1','::1'"), "4th is allow loopback");
 
     executed.Clear();
     KillSwitchFirewall.Remove(logs.Add);
@@ -140,6 +130,16 @@ Test("kill switch firewall: apply and remove sequence", () =>
     Equal(false, KillSwitchFirewall.IsActive, "IsActive false after Remove");
     Equal(1, executed.Count, "1 command on remove");
     Equal(true, executed[0].StartsWith("Remove-NetFirewallRule"), "remove called");
+});
+
+Test("kill switch firewall: leftover rules are detected after a crash or reboot", () =>
+{
+    KillSwitchFirewall.CommandRunner = cmd => new ProcessResult { ExitCode = 0, Output = "present\r\n" };
+    Equal(true, KillSwitchFirewall.RulesPresent(), "present");
+    KillSwitchFirewall.CommandRunner = cmd => new ProcessResult { ExitCode = 0, Output = "absent\r\n" };
+    Equal(false, KillSwitchFirewall.RulesPresent(), "absent");
+    KillSwitchFirewall.CommandRunner = cmd => new ProcessResult { ExitCode = 1, Output = "" };
+    Equal(false, KillSwitchFirewall.RulesPresent(), "query failed");
 });
 
 string relayPort = Environment.GetEnvironmentVariable("RELAY_PORT");

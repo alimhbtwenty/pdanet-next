@@ -266,7 +266,7 @@ namespace PdaNext
                 if (AppSettings.KillSwitch)
                 {
                     BlockedReason = "Tunnel stopped (" + reason + ")";
-                    KillSwitchFirewall.Apply(Emit, Adb.ExePath);
+                    KillSwitchFirewall.Apply(Emit);
                     Teardown(reason, BridgeState.Blocked, keepFirewall: true, nextMessage: "Tunnel stopped (" + reason + "). Kill switch active - internet blocked to prevent fallback.");
                 }
                 else
@@ -281,7 +281,7 @@ namespace PdaNext
                 if (AppSettings.KillSwitch)
                 {
                     BlockedReason = "Phone unplugged";
-                    KillSwitchFirewall.Apply(Emit, Adb.ExePath);
+                    KillSwitchFirewall.Apply(Emit);
                     Teardown("phone unplugged", BridgeState.Blocked, keepFirewall: true, nextMessage: "Phone unplugged. Kill switch active - internet blocked to prevent fallback to Wi-Fi/Ethernet.");
                 }
                 else
@@ -312,7 +312,7 @@ namespace PdaNext
                 if (AppSettings.KillSwitch)
                 {
                     BlockedReason = "Phone app stopped";
-                    KillSwitchFirewall.Apply(Emit, Adb.ExePath);
+                    KillSwitchFirewall.Apply(Emit);
                     Teardown("phone app stopped answering", BridgeState.Blocked, keepFirewall: true, nextMessage: "The phone app stopped. Kill switch active - internet blocked to prevent fallback.");
                 }
                 else
@@ -347,21 +347,28 @@ namespace PdaNext
         void RepairAfterCrash()
         {
             string stale = AppSettings.ActiveSession;
-            if (stale == null && !KillSwitchFirewall.IsActive) return;
+            // The firewall rule group is the persisted block state: it survives a crash and a reboot.
+            bool rulesLeft = KillSwitchFirewall.RulesPresent();
+            KillSwitchFirewall.IsActive = rulesLeft;
+            if (stale == null && !rulesLeft) return;
+            if (stale != null)
+            {
+                Emit("Previous session did not close cleanly; restoring network settings");
+                // The adapter itself vanished with the old process; the DNS rule did not.
+                try { NetConfig.Remove(Emit); } catch (Exception e) { Emit("DNS rule cleanup: " + e.Message); }
+                AppSettings.ActiveSession = null;
+            }
             if (AppSettings.KillSwitch)
             {
-                Emit("Previous session did not close cleanly; kill switch is on, keeping internet blocked");
-                BlockedReason = "Previous session crashed";
-                KillSwitchFirewall.Apply(Emit, Adb.ExePath);
-                SetState(BridgeState.Blocked, "Previous session crashed. Kill switch active - internet blocked.");
+                Emit("Kill switch is on; keeping the internet blocked until the phone reconnects");
+                BlockedReason = stale != null ? "Previous session crashed" : "Blocked before the app restarted";
+                if (!rulesLeft) KillSwitchFirewall.Apply(Emit);
+                SetState(BridgeState.Blocked, BlockedReason + ". Kill switch active - internet blocked.");
             }
             else
             {
-                Emit("Previous session did not close cleanly; restoring network settings");
                 KillSwitchFirewall.Remove(Emit);
-                try { NetConfig.Remove(Emit); } catch (Exception e) { Emit("DNS rule cleanup: " + e.Message); }
             }
-            AppSettings.ActiveSession = null;
         }
 
         PhoneStatus TryStatus()
