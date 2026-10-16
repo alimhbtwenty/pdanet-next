@@ -95,10 +95,17 @@
     <CustomAction Id="RemoveDnsRule" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
                   Execute="deferred" Impersonate="no" Return="ignore" />
 
+    <!-- Uninstalling while the kill switch blocks the internet must not leave the PC offline. -->
+    <SetProperty Id="RemoveKillSwitchRules" Before="RemoveKillSwitchRules" Sequence="execute"
+                 Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -Command &quot;Remove-NetFirewallRule -Group 'PdaNext Kill Switch' -ErrorAction SilentlyContinue&quot;" />
+    <CustomAction Id="RemoveKillSwitchRules" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
+                  Execute="deferred" Impersonate="no" Return="ignore" />
+
     <InstallExecuteSequence>
       <Custom Action="StopApp" Before="RemoveFiles" Condition="REMOVE ~= &quot;ALL&quot;" />
       <Custom Action="RemoveLogonTask" After="StopApp" Condition="REMOVE ~= &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
       <Custom Action="RemoveDnsRule" After="RemoveLogonTask" Condition="REMOVE ~= &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="RemoveKillSwitchRules" After="RemoveDnsRule" Condition="REMOVE ~= &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
   </Package>
 </Wix>

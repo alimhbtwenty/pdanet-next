@@ -69,6 +69,7 @@ class RouterLink(
             platform = platform,
             log = { relay.log("router: $it") },
             logger = { lvl, src, msg -> relay.log(lvl, src, msg) },
+            isProtectedProvider = relay.isProtected ?: { (relay.statusExtras()["vpnActive"] as? Boolean) == true },
         )
         relay.attachRouter(this)
         relay.log(LogLevel.INFO, LogSource.LINK, "PC connected in router mode")

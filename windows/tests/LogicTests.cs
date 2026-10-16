@@ -110,6 +110,78 @@ Test("file logger: cleans old logs older than retention period", () =>
     }
 });
 
+Test("phone status json parses protected and killSwitch fields", () =>
+{
+    var s = PhoneStatus.Parse(
+        "{\"app\":\"pdanext\",\"version\":\"3.0.0\",\"bytesUp\":100,\"bytesDown\":200,\"activeTcp\":1," +
+        "\"activeUdp\":1,\"totalConnections\":2,\"failedConnections\":0,\"uplinkConnected\":true,\"uplink\":\"wifi\"," +
+        "\"vpnActive\":true,\"protected\":true,\"killSwitch\":true,\"device\":\"test-phone\"}");
+    Equal(true, s.Protected, "protected");
+    Equal(true, s.KillSwitch, "killSwitch");
+
+    var s2 = PhoneStatus.Parse(
+        "{\"app\":\"pdanext\",\"version\":\"3.0.0\",\"bytesUp\":0,\"bytesDown\":0,\"activeTcp\":0," +
+        "\"activeUdp\":0,\"totalConnections\":0,\"failedConnections\":0,\"uplinkConnected\":false,\"uplink\":\"none\"," +
+        "\"vpnActive\":false,\"protected\":false,\"killSwitch\":false,\"device\":\"test-phone\"}");
+    Equal(false, s2.Protected, "protected false");
+    Equal(false, s2.KillSwitch, "killSwitch false");
+});
+
+Test("kill switch firewall: generated command strings", () =>
+{
+    string blockCmd = KillSwitchFirewall.BuildAddBlockRuleCommand();
+    Equal(true, blockCmd.Contains("New-NetFirewallRule"), "has New-NetFirewallRule");
+    Equal(true, blockCmd.Contains("-DisplayName 'PdaNext Kill Switch - Block Outbound'"), "has DisplayName");
+    Equal(true, blockCmd.Contains("-Group 'PdaNext Kill Switch'"), "has Group");
+    Equal(true, blockCmd.Contains("-Direction Outbound"), "has Direction");
+    Equal(true, blockCmd.Contains("-Action Block"), "has Action");
+    Equal(true, blockCmd.Contains("-Profile Any"), "has Profile");
+
+    string queryCmd = KillSwitchFirewall.BuildQueryRulesCommand();
+    Equal(true, queryCmd.Contains("Get-NetFirewallRule -Group 'PdaNext Kill Switch'"), "query Group");
+
+    string removeCmd = KillSwitchFirewall.BuildRemoveRulesCommand();
+    Equal(true, removeCmd.Contains("Remove-NetFirewallRule"), "remove command");
+    Equal(true, removeCmd.Contains("-Group 'PdaNext Kill Switch'"), "remove Group");
+    Equal(true, removeCmd.Contains("-ErrorAction SilentlyContinue"), "remove SilentlyContinue");
+});
+
+Test("kill switch firewall: apply and remove sequence", () =>
+{
+    var executed = new List<string>();
+    KillSwitchFirewall.CommandRunner = cmd =>
+    {
+        executed.Add(cmd);
+        return new ProcessResult { ExitCode = 0, Output = "OK" };
+    };
+
+    var logs = new List<string>();
+    KillSwitchFirewall.Apply(logs.Add);
+
+    Equal(true, KillSwitchFirewall.IsActive, "IsActive after Apply");
+    // Removes old rules first, then adds the single block rule (allow rules cannot override a block)
+    Equal(2, executed.Count, "2 commands on apply");
+    Equal(true, executed[0].StartsWith("Remove-NetFirewallRule"), "1st is remove");
+    Equal(true, executed[1].Contains("-Action Block"), "2nd is block rule");
+
+    executed.Clear();
+    KillSwitchFirewall.Remove(logs.Add);
+
+    Equal(false, KillSwitchFirewall.IsActive, "IsActive false after Remove");
+    Equal(1, executed.Count, "1 command on remove");
+    Equal(true, executed[0].StartsWith("Remove-NetFirewallRule"), "remove called");
+});
+
+Test("kill switch firewall: leftover rules are detected after a crash or reboot", () =>
+{
+    KillSwitchFirewall.CommandRunner = cmd => new ProcessResult { ExitCode = 0, Output = "present\r\n" };
+    Equal(true, KillSwitchFirewall.RulesPresent(), "present");
+    KillSwitchFirewall.CommandRunner = cmd => new ProcessResult { ExitCode = 0, Output = "absent\r\n" };
+    Equal(false, KillSwitchFirewall.RulesPresent(), "absent");
+    KillSwitchFirewall.CommandRunner = cmd => new ProcessResult { ExitCode = 1, Output = "" };
+    Equal(false, KillSwitchFirewall.RulesPresent(), "query failed");
+});
+
 string relayPort = Environment.GetEnvironmentVariable("RELAY_PORT");
 if (!string.IsNullOrEmpty(relayPort))
 {

@@ -16,6 +16,8 @@ namespace PdaNext
         public string Uplink;
         public bool UplinkConnected;
         public bool VpnActive;
+        public bool Protected;
+        public bool KillSwitch;
         public long BytesUp;
         public long BytesDown;
         public long ActiveTcp;
@@ -74,6 +76,8 @@ namespace PdaNext
                 Uplink = FlatJson.Str(f, "uplink"),
                 UplinkConnected = FlatJson.Str(f, "uplinkConnected") != "false",
                 VpnActive = FlatJson.Str(f, "vpnActive") == "true",
+                Protected = FlatJson.Str(f, "protected") == "true",
+                KillSwitch = FlatJson.Str(f, "killSwitch") == "true",
                 BytesUp = FlatJson.Long(f, "bytesUp"),
                 BytesDown = FlatJson.Long(f, "bytesDown"),
                 ActiveTcp = FlatJson.Long(f, "activeTcp"),

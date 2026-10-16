@@ -92,15 +92,15 @@ namespace PdaNext
 
         Dot statusDot;
         Label lblStatus, lblDetail, lblPhone, lblUplink, lblVpn, lblDown, lblUp, lblTotal, lblRouterPing, lblNetPing;
-        Button btnConnect;
+        Button btnConnect, btnUnblock;
         ComboBox cbDevice;
-        CheckBox chkAuto, chkStartup, chkDns;
+        CheckBox chkAuto, chkStartup, chkDns, chkKillSwitch;
         readonly Timer pingTimer = new Timer { Interval = 2000 };
         bool pinging;
         TextBox txtLog;
         LinkLabel lnkLog;
         Button btnSaveDiag;
-        ToolStripMenuItem trayConnect, trayStatus;
+        ToolStripMenuItem trayConnect, trayStatus, trayUnblock;
 
         PhoneStatus lastStatus;
         DateTime lastStatusAt;
@@ -119,7 +119,7 @@ namespace PdaNext
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(480, 720);
+            ClientSize = new Size(480, 750);
             StartPosition = FormStartPosition.CenterScreen;
 
             BuildUi();
@@ -127,8 +127,10 @@ namespace PdaNext
             tray = new NotifyIcon { Icon = Program.AppIcon, Text = "PdaNext", Visible = true };
             var menu = new ContextMenuStrip();
             trayStatus = new ToolStripMenuItem("Not connected") { Enabled = false };
+            trayUnblock = new ToolStripMenuItem("Unblock internet", null, (s, e) => bridge.RequestUnblock()) { Visible = false };
             trayConnect = new ToolStripMenuItem("Connect", null, (s, e) => ToggleConnection());
             menu.Items.Add(trayStatus);
+            menu.Items.Add(trayUnblock);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(new ToolStripMenuItem("Open", null, (s, e) => ShowFromTray()));
             menu.Items.Add(trayConnect);
@@ -219,6 +221,23 @@ namespace PdaNext
             btnConnect.FlatAppearance.BorderSize = 0;
             btnConnect.Click += (s, e) => ToggleConnection();
             Controls.Add(btnConnect);
+
+            btnUnblock = new Button
+            {
+                Text = "Unblock",
+                Location = new Point(x + (w - 10) / 2 + 10, y),
+                Size = new Size((w - 10) / 2, 54),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Theme.Card,
+                ForeColor = Theme.Text,
+                Font = Theme.UI(12f, FontStyle.Bold),
+                Cursor = Cursors.Hand,
+                Visible = false,
+            };
+            btnUnblock.FlatAppearance.BorderColor = Theme.Stroke;
+            btnUnblock.FlatAppearance.BorderSize = 1;
+            btnUnblock.Click += (s, e) => bridge.RequestUnblock();
+            Controls.Add(btnUnblock);
             y += 66;
 
             // Traffic card
@@ -249,7 +268,18 @@ namespace PdaNext
             chkDns = MakeCheck("Send all DNS to the phone (no DNS leaks outside the VPN)", x + 4, y, w);
             chkDns.Checked = AppSettings.PreventDnsLeaks;
             chkDns.CheckedChanged += (s, e) => AppSettings.PreventDnsLeaks = chkDns.Checked;
-            Controls.AddRange(new Control[] { chkAuto, chkStartup, chkDns });
+            y += 28;
+            chkKillSwitch = MakeCheck("Kill switch (block internet if the phone link drops)", x + 4, y, w);
+            chkKillSwitch.Checked = AppSettings.KillSwitch;
+            chkKillSwitch.CheckedChanged += (s, e) =>
+            {
+                AppSettings.KillSwitch = chkKillSwitch.Checked;
+                if (!chkKillSwitch.Checked)
+                {
+                    bridge.RequestUnblock();
+                }
+            };
+            Controls.AddRange(new Control[] { chkAuto, chkStartup, chkDns, chkKillSwitch });
 
             pingTimer.Tick += async (s, e) => await PingOnce();
             pingTimer.Start();
@@ -361,6 +391,7 @@ namespace PdaNext
                 case BridgeState.Connecting: title = "Connecting…"; color = Theme.Wait; break;
                 case BridgeState.Waiting: title = "Waiting for phone"; color = Theme.Wait; break;
                 case BridgeState.Error: title = "Problem"; color = Theme.Error; break;
+                case BridgeState.Blocked: title = "Kill switch active"; color = Theme.Error; break;
                 default: title = "Not connected"; color = Theme.Off; break;
             }
             bool changed = lblStatus.Text != title;
@@ -374,11 +405,22 @@ namespace PdaNext
                 lblDown.Text = lblUp.Text = "0 KB/s";
                 lastStatus = null;
             }
+            if (btnUnblock != null)
+            {
+                bool blocked = state == BridgeState.Blocked;
+                btnUnblock.Visible = blocked;
+                int w = ClientSize.Width - 36;
+                btnConnect.Width = blocked ? (w - 10) / 2 : w;
+            }
+            if (trayUnblock != null)
+            {
+                trayUnblock.Visible = state == BridgeState.Blocked;
+            }
             RenderButton();
-            if (changed && (state == BridgeState.Connected || state == BridgeState.Error || (state == BridgeState.Waiting && message.StartsWith("Phone unplugged"))))
+            if (changed && (state == BridgeState.Connected || state == BridgeState.Error || state == BridgeState.Blocked || (state == BridgeState.Waiting && message.StartsWith("Phone unplugged"))))
             {
                 tray.ShowBalloonTip(3000, "PdaNext: " + title, message,
-                    state == BridgeState.Error ? ToolTipIcon.Error : ToolTipIcon.Info);
+                    state == BridgeState.Error || state == BridgeState.Blocked ? ToolTipIcon.Warning : ToolTipIcon.Info);
             }
         }
 
@@ -456,7 +498,7 @@ namespace PdaNext
         {
             txtLog.Visible = !txtLog.Visible;
             lnkLog.Text = txtLog.Visible ? "Hide log" : "Show log";
-            ClientSize = new Size(ClientSize.Width, txtLog.Visible ? 720 + 160 : 720);
+            ClientSize = new Size(ClientSize.Width, txtLog.Visible ? 750 + 160 : 750);
         }
 
         async System.Threading.Tasks.Task SaveDiagnosticsAsync()
