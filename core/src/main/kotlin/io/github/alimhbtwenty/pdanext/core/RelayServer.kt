@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicInteger
  *  - the router link ("PDNR"): raw IP packets from the PC's network adapter, NAT-ed by [Router];
  *  - `GET /status`: JSON counters plus the phone's uplink/VPN state, polled by the PC app;
  *  - `GET /ping-pc`: an ICMP echo from the phone (the router) to the PC;
- *  - `/xray/*`: PC control for Xray profiles and bypass domains.
+ *  - `/xray/...`: PC control for Xray profiles and bypass domains.
  *
  * Every outgoing socket is opened by this process, so the phone's own routing decides
  * where it goes: mobile data, WiFi, or an active VPN.
@@ -42,9 +42,9 @@ class RelayServer(
     private val routerConfig: RouterConfig = RouterConfig(),
     private val routerPlatform: RouterPlatform = JvmRouterPlatform(),
     private val tunnelUpstream: Upstream? = null,
-    /** Current tunnel for new flows (e.g. the selected Xray config); null = everything DIRECT. */
-    /** PC-managed Xray profiles (`/xray/*`); its selected profile is the tunnel. */
+    /** PC-managed Xray profiles (the `/xray/` endpoints); its selected profile is the tunnel. */
     val xrayControl: XrayControl? = null,
+    /** Current tunnel for new flows (e.g. the selected Xray config); null = everything DIRECT. */
     private val tunnelProvider: () -> Upstream? = { xrayControl?.activeTunnel ?: tunnelUpstream },
     private val bypassPolicy: BypassPolicy = BypassPolicy(),
     val logBuffer: LogRingBuffer = LogRingBuffer(),
