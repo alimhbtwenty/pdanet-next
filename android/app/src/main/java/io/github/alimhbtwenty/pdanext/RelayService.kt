@@ -19,7 +19,7 @@ import androidx.core.content.ContextCompat
 import io.github.alimhbtwenty.pdanext.core.LogLevel
 import io.github.alimhbtwenty.pdanext.core.LogSource
 import io.github.alimhbtwenty.pdanext.core.RelayServer
-import io.github.alimhbtwenty.pdanext.core.RotatingFileLogger
+import io.github.alimhbtwenty.pdanext.core.FailureFileLogger
 import io.github.alimhbtwenty.pdanext.core.router.BypassPolicy
 import io.github.alimhbtwenty.pdanext.core.router.Ipv4Ranges
 import java.io.File
@@ -75,22 +75,17 @@ class RelayService : Service() {
         }
         if (relay?.isRunning == true) return START_STICKY
 
-        val rotatingLogger = RotatingFileLogger(File(filesDir, "logs"), maxBytes = 1024 * 1024, maxFiles = 2)
+        val failureLogger = FailureFileLogger(File(filesDir, "logs"))
         val iranRanges = loadIranRanges()
         val bypassPolicy = BypassPolicy(ranges = iranRanges)
         val server = RelayServer(
             port = RelayServer.DEFAULT_PORT,
             log = { Log.d(TAG, it) },
-            statusExtras = {
-                UplinkInfo.read(this).toStatus() + mapOf(
-                    "device" to "${Build.MANUFACTURER} ${Build.MODEL}",
-                    "iranRanges" to iranRanges.size,
-                )
-            },
+            statusExtras = { UplinkInfo.read(this).toStatus() + ("device" to "${Build.MANUFACTURER} ${Build.MODEL}") },
             routerPlatform = AndroidRouterPlatform(),
             bypassPolicy = bypassPolicy,
+            failureLogger = failureLogger,
         )
-        server.logBuffer.addListener { _, line -> rotatingLogger.append(line) }
         server.logBuffer.log(LogLevel.INFO, LogSource.SERVICE, "Relay service starting (${iranRanges.size} Iranian ranges loaded)")
         relay = server
         current = server
@@ -99,6 +94,7 @@ class RelayService : Service() {
                 server.start()
             } catch (e: Exception) {
                 Log.e(TAG, "relay failed to start", e)
+                server.logBuffer.log(LogLevel.ERROR, LogSource.SERVICE, "relay failed to start on port ${RelayServer.DEFAULT_PORT}: ${e.message}")
                 _state.value = State(error = "Port ${RelayServer.DEFAULT_PORT} is busy: ${e.message}")
                 stopSelf()
                 return@launch

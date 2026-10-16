@@ -87,6 +87,7 @@ class RouterLink(
             disconnectReason = "EOF / connection closed by PC"
         } catch (e: Exception) {
             disconnectReason = "${e.javaClass.simpleName}: ${e.message}"
+            relay.log(LogLevel.WARN, LogSource.LINK, "Router link dropped with error: $disconnectReason")
         } finally {
             close()
             writer.interrupt()

@@ -45,8 +45,17 @@ class RelayServer(
     val logBuffer: LogRingBuffer = LogRingBuffer(),
     val requireProtection: Boolean = routerConfig.requireProtection,
     val isProtected: (() -> Boolean)? = null,
+    val failureLogger: FailureFileLogger? = null,
 ) {
     val stats = RelayStats()
+
+    init {
+        if (failureLogger != null) {
+            logBuffer.addListener { entry, _ ->
+                failureLogger.append(entry)
+            }
+        }
+    }
 
     @Volatile private var serverSocket: ServerSocket? = null
     @Volatile private var executor: ExecutorService? = null
@@ -103,7 +112,7 @@ class RelayServer(
             val client = try {
                 server.accept()
             } catch (e: IOException) {
-                if (!server.isClosed) log("accept failed: ${e.message}")
+                if (!server.isClosed) log(LogLevel.WARN, LogSource.SERVICE, "accept failed: ${e.message}")
                 continue
             }
             try {
@@ -150,7 +159,8 @@ class RelayServer(
             if (b < 0 || b == '\n'.code) break
             line.append(b.toChar())
         }
-        val path = line.split(' ').getOrNull(1)?.substringBefore('?')
+        val fullTarget = line.split(' ').getOrNull(1) ?: ""
+        val path = fullTarget.substringBefore('?')
         if (path == "/log") {
             if (!client.inetAddress.isLoopbackAddress) {
                 val body = "403 Forbidden: loopback only\n".toByteArray()
@@ -162,7 +172,34 @@ class RelayServer(
                 output.flush()
                 return
             }
-            val text = logBuffer.dumpText()
+            val since = parseQueryParam(fullTarget, "since")?.toLongOrNull()
+            // Text and sequence come from the same snapshot, so a line logged meanwhile is not skipped.
+            val entries = logBuffer.dump(since)
+            val text = entries.joinToString("") { it.format() + "\n" }
+            val bytes = text.toByteArray(Charsets.UTF_8)
+            val lastSeq = entries.lastOrNull()?.sequence ?: (since ?: 0L)
+            output.write(
+                ("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\n" +
+                    "X-Log-Seq: $lastSeq\r\n" +
+                    "X-Log-Boot: ${logBuffer.bootId}\r\n" +
+                    "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n").toByteArray()
+            )
+            output.write(bytes)
+            output.flush()
+            return
+        }
+        if (path == "/log/failures") {
+            if (!client.inetAddress.isLoopbackAddress) {
+                val body = "403 Forbidden: loopback only\n".toByteArray()
+                output.write(
+                    ("HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain; charset=utf-8\r\n" +
+                        "Content-Length: ${body.size}\r\nConnection: close\r\n\r\n").toByteArray()
+                )
+                output.write(body)
+                output.flush()
+                return
+            }
+            val text = failureLogger?.readAllText() ?: ""
             val bytes = text.toByteArray(Charsets.UTF_8)
             output.write(
                 ("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\n" +
@@ -185,6 +222,18 @@ class RelayServer(
         )
         output.write(bytes)
         output.flush()
+    }
+
+    private fun parseQueryParam(url: String, key: String): String? {
+        val query = url.substringAfter('?', "")
+        if (query.isEmpty()) return null
+        for (pair in query.split('&')) {
+            val parts = pair.split('=', limit = 2)
+            if (parts[0] == key && parts.size == 2) {
+                return parts[1]
+            }
+        }
+        return null
     }
 
     private fun track(socket: Socket) { openSockets.add(socket) }

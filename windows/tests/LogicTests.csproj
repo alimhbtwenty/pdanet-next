@@ -17,5 +17,6 @@
     <Compile Include="..\src\SecretRedactor.cs" />
     <Compile Include="..\src\VpnDiscovery.cs" />
     <Compile Include="..\src\Scrcpy.cs" />
+    <Compile Include="..\src\PhoneLogPoller.cs" />
   </ItemGroup>
 </Project>

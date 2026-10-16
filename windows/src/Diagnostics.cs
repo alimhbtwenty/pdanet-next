@@ -29,6 +29,9 @@ namespace PdaNext
                 "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Get-DnsClientNrptRule | Format-List\"",
                 12000).Output;
 
+            string savedPhoneLogs = SecretRedactor.Redact(GetSavedPhoneLogs());
+            string phoneFailures = SecretRedactor.Redact(GetPhoneFailuresLog(port));
+
             // Ensure secrets are redacted from all diagnostic outputs
             pcLog = SecretRedactor.Redact(pcLog);
             phoneLog = SecretRedactor.Redact(phoneLog);
@@ -44,6 +47,8 @@ namespace PdaNext
             {
                 AddEntry(zip, "pc.log", pcLog);
                 AddEntry(zip, "phone.log", phoneLog);
+                AddEntry(zip, "phone-saved.log", savedPhoneLogs);
+                AddEntry(zip, "phone-failures.log", phoneFailures);
                 AddEntry(zip, "status.json", statusJson);
                 AddEntry(zip, "ipconfig.txt", ipconfig);
                 AddEntry(zip, "route.txt", route);
@@ -97,6 +102,67 @@ namespace PdaNext
             {
                 return "Failed to read PC logs: " + ex.Message;
             }
+        }
+
+        static string GetSavedPhoneLogs()
+        {
+            try
+            {
+                string dir = FileLogger.LogDirectory;
+                if (!Directory.Exists(dir)) return "No logs directory found at " + dir;
+
+                var files = Directory.GetFiles(dir, "phone-*.log");
+                if (files.Length == 0) return "No saved phone log files found.";
+
+                Array.Sort(files);
+                var sb = new StringBuilder();
+                foreach (var file in files)
+                {
+                    string fname = Path.GetFileName(file);
+                    if (fname.Equals("phone-failures.log", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    sb.AppendLine("=== " + fname + " ===");
+                    try
+                    {
+                        using (var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                        using (var reader = new StreamReader(stream, Encoding.UTF8))
+                        {
+                            sb.AppendLine(reader.ReadToEnd());
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        sb.AppendLine("Error reading log file: " + e.Message);
+                    }
+                }
+                return sb.ToString();
+            }
+            catch (Exception ex)
+            {
+                return "Failed to read saved phone logs: " + ex.Message;
+            }
+        }
+
+        static string GetPhoneFailuresLog(int port)
+        {
+            string failuresFile = Path.Combine(FileLogger.LogDirectory, "phone-failures.log");
+            if (File.Exists(failuresFile))
+            {
+                try
+                {
+                    using (var stream = new FileStream(failuresFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    using (var reader = new StreamReader(stream, Encoding.UTF8))
+                    {
+                        return reader.ReadToEnd();
+                    }
+                }
+                catch (Exception e)
+                {
+                    return "Error reading phone-failures.log: " + e.Message;
+                }
+            }
+            return FetchHttp("http://127.0.0.1:" + port + "/log/failures", 4000) ??
+                   "Phone failure log unavailable";
         }
 
         static string FetchHttp(string url, int timeoutMs)

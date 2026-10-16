@@ -156,4 +156,157 @@ class LogSystemTest {
             tempDir.deleteRecursively()
         }
     }
+
+    @Test
+    fun `LogRingBuffer assigns monotonic sequence numbers and filters by since`() {
+        val buffer = LogRingBuffer(10)
+        val e1 = buffer.log(LogLevel.INFO, LogSource.ROUTER, "msg 1")
+        val e2 = buffer.log(LogLevel.WARN, LogSource.DNS, "msg 2")
+        val e3 = buffer.log(LogLevel.ERROR, LogSource.SERVICE, "msg 3")
+
+        assertEquals(1L, e1.sequence)
+        assertEquals(2L, e2.sequence)
+        assertEquals(3L, e3.sequence)
+        assertEquals(3L, buffer.lastSequence())
+
+        val all = buffer.dump()
+        assertEquals(3, all.size)
+
+        val since1 = buffer.dump(since = 1)
+        assertEquals(2, since1.size)
+        assertEquals(2L, since1[0].sequence)
+        assertEquals(3L, since1[1].sequence)
+
+        val since3 = buffer.dump(since = 3)
+        assertTrue(since3.isEmpty())
+
+        val textSince1 = buffer.dumpText(since = 1)
+        assertFalse(textSince1.contains("msg 1"))
+        assertTrue(textSince1.contains("msg 2"))
+        assertTrue(textSince1.contains("msg 3"))
+    }
+
+    @Test
+    fun `RelayServer returns X-Log-Seq header and filters log with since query param`() {
+        val server = RelayServer(port = 0).also { it.start() }
+        val actualPort = (server.javaClass.getDeclaredField("serverSocket").apply { isAccessible = true }.get(server) as java.net.ServerSocket).localPort
+        try {
+            val e1 = server.logBuffer.log(LogLevel.INFO, LogSource.LINK, "entry-one")
+            val e2 = server.logBuffer.log(LogLevel.WARN, LogSource.DNS, "entry-two")
+
+            // 1. GET /log without since
+            Socket("127.0.0.1", actualPort).use { s ->
+                s.getOutputStream().write("GET /log HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".toByteArray())
+                val reader = BufferedReader(InputStreamReader(s.getInputStream()))
+                val status = reader.readLine()
+                assertEquals("HTTP/1.1 200 OK", status)
+                val headers = mutableMapOf<String, String>()
+                var line: String?
+                while (reader.readLine().also { line = it } != null && line!!.isNotEmpty()) {
+                    val parts = line!!.split(":", limit = 2)
+                    if (parts.size == 2) headers[parts[0].trim().lowercase()] = parts[1].trim()
+                }
+                assertEquals(e2.sequence.toString(), headers["x-log-seq"])
+                assertEquals(server.logBuffer.bootId, headers["x-log-boot"])
+                val body = reader.readText()
+                assertTrue(body.contains("entry-one"))
+                assertTrue(body.contains("entry-two"))
+            }
+
+            // 2. GET /log?since=<e1.sequence>
+            Socket("127.0.0.1", actualPort).use { s ->
+                s.getOutputStream().write("GET /log?since=${e1.sequence} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".toByteArray())
+                val reader = BufferedReader(InputStreamReader(s.getInputStream()))
+                val status = reader.readLine()
+                assertEquals("HTTP/1.1 200 OK", status)
+                val headers = mutableMapOf<String, String>()
+                var line: String?
+                while (reader.readLine().also { line = it } != null && line!!.isNotEmpty()) {
+                    val parts = line!!.split(":", limit = 2)
+                    if (parts.size == 2) headers[parts[0].trim().lowercase()] = parts[1].trim()
+                }
+                assertEquals(e2.sequence.toString(), headers["x-log-seq"])
+                val body = reader.readText()
+                assertFalse(body.contains("entry-one"))
+                assertTrue(body.contains("entry-two"))
+            }
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun `FailureFileLogger filters level greater or equal to WARN`() {
+        val tempDir = File.createTempFile("pdanext-failure-filter", "").apply { delete(); mkdirs() }
+        try {
+            val failureLogger = FailureFileLogger(tempDir, baseName = "failures.log")
+            val buffer = LogRingBuffer(10)
+            buffer.addListener { entry, _ -> failureLogger.append(entry) }
+
+            buffer.log(LogLevel.INFO, LogSource.ROUTER, "Normal info message")
+            buffer.log(LogLevel.WARN, LogSource.ROUTER, "TCP connect failed")
+            buffer.log(LogLevel.ERROR, LogSource.SERVICE, "Service crash")
+
+            val content = failureLogger.readAllText()
+            assertFalse(content.contains("Normal info message"))
+            assertTrue(content.contains("TCP connect failed"))
+            assertTrue(content.contains("Service crash"))
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `FailureFileLogger rotates to next parts and never deletes files past maxBytes`() {
+        val tempDir = File.createTempFile("pdanext-failure-parts", "").apply { delete(); mkdirs() }
+        try {
+            val failureLogger = FailureFileLogger(tempDir, baseName = "failures.log", maxBytes = 100)
+            // Line length 70+ bytes each to exceed 100 maxBytes on subsequent writes
+            val line1 = "Failure line 1: " + "0123456789".repeat(6)
+            val line2 = "Failure line 2: " + "0123456789".repeat(6)
+            val line3 = "Failure line 3: " + "0123456789".repeat(6)
+
+            failureLogger.append(line1)
+            failureLogger.append(line2) // should rotate to failures-2.log
+            failureLogger.append(line3) // should rotate to failures-3.log
+
+            val files = failureLogger.listLogFiles()
+            assertEquals(3, files.size)
+            assertTrue(File(tempDir, "failures.log").exists())
+            assertTrue(File(tempDir, "failures-2.log").exists())
+            assertTrue(File(tempDir, "failures-3.log").exists())
+
+            val content = failureLogger.readAllText()
+            assertTrue(content.contains("Failure line 1"))
+            assertTrue(content.contains("Failure line 2"))
+            assertTrue(content.contains("Failure line 3"))
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `RelayServer serves GET log failures for failure log content`() {
+        val tempDir = File.createTempFile("pdanext-server-failures", "").apply { delete(); mkdirs() }
+        val failureLogger = FailureFileLogger(tempDir, baseName = "failures.log")
+        val server = RelayServer(port = 0, failureLogger = failureLogger).also { it.start() }
+        val actualPort = (server.javaClass.getDeclaredField("serverSocket").apply { isAccessible = true }.get(server) as java.net.ServerSocket).localPort
+        try {
+            server.logBuffer.log(LogLevel.INFO, LogSource.SERVICE, "ignored info")
+            server.logBuffer.log(LogLevel.WARN, LogSource.ROUTER, "warn connection drop")
+
+            Socket("127.0.0.1", actualPort).use { s ->
+                s.getOutputStream().write("GET /log/failures HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".toByteArray())
+                val reader = BufferedReader(InputStreamReader(s.getInputStream()))
+                val status = reader.readLine()
+                assertEquals("HTTP/1.1 200 OK", status)
+                val body = reader.readText()
+                assertFalse(body.contains("ignored info"))
+                assertTrue(body.contains("warn connection drop"))
+            }
+        } finally {
+            server.stop()
+            tempDir.deleteRecursively()
+        }
+    }
 }
