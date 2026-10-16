@@ -16,15 +16,26 @@ enum class Route { DIRECT, TUNNEL }
  * Everything else goes through the tunnel; a tunnel failure must never fall back to direct.
  */
 class BypassPolicy(domains: Collection<String> = emptyList(), val ranges: Ipv4Ranges = Ipv4Ranges.EMPTY) {
-    val iranRanges: Int get() = ranges.size
-    private val domains: Set<String> = domains.mapNotNull(::hostOf).toSet()
+    private val ownerDomains = java.util.concurrent.CopyOnWriteArraySet<String>().apply {
+        addAll(domains.mapNotNull(::hostOf))
+    }
+    val domains: Set<String> get() = ownerDomains
     private val learned = ConcurrentHashMap<InetAddress, Long>()
+
+    fun setDomains(newDomains: Collection<String>) {
+        ownerDomains.clear()
+        ownerDomains.addAll(newDomains.mapNotNull(::hostOf))
+    }
+
+    fun addDomains(newDomains: Collection<String>) {
+        ownerDomains.addAll(newDomains.mapNotNull(::hostOf))
+    }
 
     fun isDomesticName(name: String): Boolean {
         var n = name.lowercase().trimEnd('.')
         if (n == "ir" || n.endsWith(".ir")) return true
         while (true) {
-            if (n in domains) return true
+            if (n in ownerDomains) return true
             val dot = n.indexOf('.')
             if (dot < 0) return false
             n = n.substring(dot + 1)

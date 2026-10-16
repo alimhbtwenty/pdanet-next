@@ -20,10 +20,6 @@ import xraybridge.Xraybridge
 class XrayEngineImpl : XrayEngine {
     private val lock = Any()
 
-    /** True after [start] until [stop], even if the instance died: tunnelled flows then fail. */
-    @Volatile var isSelected = false
-        private set
-
     override fun start(configJson: String) {
         synchronized(lock) {
             try {
@@ -32,13 +28,11 @@ class XrayEngineImpl : XrayEngine {
                 // The bridge never puts the config in its errors; keep only its message.
                 throw IllegalArgumentException(e.message ?: "invalid Xray config")
             }
-            isSelected = true
         }
     }
 
     override fun stop() {
         synchronized(lock) {
-            isSelected = false
             Xraybridge.stop()
         }
     }

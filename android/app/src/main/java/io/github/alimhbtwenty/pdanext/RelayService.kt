@@ -22,6 +22,8 @@ import io.github.alimhbtwenty.pdanext.core.RelayServer
 import io.github.alimhbtwenty.pdanext.core.FailureFileLogger
 import io.github.alimhbtwenty.pdanext.core.router.BypassPolicy
 import io.github.alimhbtwenty.pdanext.core.router.Ipv4Ranges
+import io.github.alimhbtwenty.pdanext.core.xray.XrayControl
+import io.github.alimhbtwenty.pdanext.xray.AndroidXrayProfileStore
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -78,6 +80,15 @@ class RelayService : Service() {
         val failureLogger = FailureFileLogger(File(filesDir, "logs"))
         val iranRanges = loadIranRanges()
         val bypassPolicy = BypassPolicy(ranges = iranRanges)
+        // Servers are managed from the PC (/xray/ endpoints); the selected one carries Route.TUNNEL flows.
+        val xrayControl = XrayControl(AndroidXrayProfileStore(applicationContext), xrayEngine, bypassPolicy)
+        try {
+            xrayControl.startSelected()
+        } catch (e: Exception) {
+            // Stays selected: tunnelled flows fail rather than leave directly (ADR-0001).
+            Log.w(TAG, "could not start the selected Xray server: ${e.message}")
+        }
+
         val server = RelayServer(
             port = RelayServer.DEFAULT_PORT,
             log = { Log.d(TAG, it) },
@@ -88,8 +99,7 @@ class RelayService : Service() {
             routerPlatform = AndroidRouterPlatform(),
             bypassPolicy = bypassPolicy,
             failureLogger = failureLogger,
-            // A selected Xray config carries Route.TUNNEL flows; none selected = everything direct.
-            tunnelProvider = { xrayEngine.tunnel.takeIf { xrayEngine.isSelected } },
+            xrayControl = xrayControl,
         )
         server.logBuffer.log(LogLevel.INFO, LogSource.SERVICE, "Relay service starting (${iranRanges.size} Iranian ranges loaded)")
         relay = server
