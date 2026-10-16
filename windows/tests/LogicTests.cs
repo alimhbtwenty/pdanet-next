@@ -76,7 +76,10 @@ if (!string.IsNullOrEmpty(relayPort))
     Test("fetch /status from a live relay", () =>
     {
         var s = PhoneStatus.Fetch(int.Parse(relayPort));
-        Equal("3.0.0", s.Version);
+        // The relay reports the version from the root VERSION file; walk up to it from the test binary.
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (!File.Exists(Path.Combine(dir.FullName, "VERSION"))) dir = dir.Parent;
+        Equal(File.ReadAllText(Path.Combine(dir.FullName, "VERSION")).Trim(), s.Version);
     });
 
     Test("router link: handshake, then ping the router through framed packets", () =>
