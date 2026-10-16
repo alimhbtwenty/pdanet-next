@@ -101,6 +101,13 @@ namespace PdaNext
         LinkLabel lnkLog;
         ToolStripMenuItem trayConnect, trayStatus;
 
+        Card vpnCard;
+        Panel pnlVpnList;
+        Label lblVpnNote;
+        Button btnPhoneScreen;
+        LinkLabel lnkRefreshVpn;
+        bool refreshingVpns;
+
         PhoneStatus lastStatus;
         DateTime lastStatusAt;
         List<AdbDevice> devices = new List<AdbDevice>();
@@ -118,7 +125,7 @@ namespace PdaNext
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(480, 720);
+            ClientSize = new Size(480, 890);
             StartPosition = FormStartPosition.CenterScreen;
 
             BuildUi();
@@ -219,6 +226,58 @@ namespace PdaNext
             btnConnect.Click += (s, e) => ToggleConnection();
             Controls.Add(btnConnect);
             y += 66;
+
+            // VPN card
+            vpnCard = AddCard(x, y, w, 192);
+            vpnCard.Controls.Add(MakeCaption("VPN APPS", 18, 14));
+
+            btnPhoneScreen = new Button
+            {
+                Text = "Phone screen",
+                Location = new Point(w - 18 - 110, 10),
+                Size = new Size(110, 26),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Theme.Stroke,
+                ForeColor = Theme.Text,
+                Font = Theme.UI(8.5f, FontStyle.Bold),
+                Cursor = Cursors.Hand,
+            };
+            btnPhoneScreen.FlatAppearance.BorderSize = 0;
+            btnPhoneScreen.Click += (s, e) =>
+            {
+                try { Scrcpy.Start(SelectedSerial); }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Could not start scrcpy: " + ex.Message, "PdaNext", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            };
+            vpnCard.Controls.Add(btnPhoneScreen);
+
+            lblVpnNote = MakeLabel("Starting another VPN stops the current one", Theme.UI(8.5f), Theme.Muted, 18, 38, w - 80);
+            vpnCard.Controls.Add(lblVpnNote);
+
+            lnkRefreshVpn = new LinkLabel
+            {
+                Text = "Refresh",
+                Location = new Point(w - 18 - 50, 38),
+                AutoSize = true,
+                LinkColor = Theme.Accent,
+                ActiveLinkColor = Theme.Accent,
+                Font = Theme.UI(8.5f),
+            };
+            lnkRefreshVpn.LinkClicked += (s, e) => RefreshVpnApps();
+            vpnCard.Controls.Add(lnkRefreshVpn);
+
+            pnlVpnList = new Panel
+            {
+                Location = new Point(18, 58),
+                Size = new Size(w - 36, 122),
+                AutoScroll = true,
+                BackColor = Color.Transparent,
+            };
+            vpnCard.Controls.Add(pnlVpnList);
+            RenderVpnApps(null, "Connect a phone to view VPN apps");
+            y += 204;
 
             // Traffic card
             var traffic = AddCard(x, y, w, 138);
@@ -402,6 +461,122 @@ namespace PdaNext
             lblPhone.Visible = list.Count <= 1;
             if (list.Count == 0) lblPhone.Text = "No phone found";
             else if (list.Count == 1) lblPhone.Text = list[0].DisplayName + (list[0].Ready ? "" : "  (" + list[0].State + ")");
+
+            RefreshVpnApps();
+        }
+
+        async void RefreshVpnApps()
+        {
+            if (refreshingVpns) return;
+            string serial = SelectedSerial;
+            if (string.IsNullOrEmpty(serial))
+            {
+                RenderVpnApps(null, "Connect a phone to view VPN apps");
+                return;
+            }
+
+            refreshingVpns = true;
+            RenderVpnApps(null, "Scanning VPN apps…");
+            try
+            {
+                var apps = await Adb.ListVpnAppsAsync(serial);
+                Ui(() => RenderVpnApps(apps, apps.Count == 0 ? "No VPN apps found on phone" : null));
+            }
+            catch (Exception ex)
+            {
+                Ui(() => RenderVpnApps(null, "Error scanning VPN apps: " + ex.Message));
+            }
+            finally
+            {
+                refreshingVpns = false;
+            }
+        }
+
+        void RenderVpnApps(List<VpnApp> apps, string message)
+        {
+            pnlVpnList.SuspendLayout();
+            pnlVpnList.Controls.Clear();
+
+            if (!string.IsNullOrEmpty(message))
+            {
+                var lblMsg = MakeLabel(message, Theme.UI(9f), Theme.Muted, 4, 10, pnlVpnList.Width - 10);
+                pnlVpnList.Controls.Add(lblMsg);
+                pnlVpnList.ResumeLayout();
+                return;
+            }
+
+            if (apps == null || apps.Count == 0)
+            {
+                var lblMsg = MakeLabel("No VPN apps found on phone", Theme.UI(9f), Theme.Muted, 4, 10, pnlVpnList.Width - 10);
+                pnlVpnList.Controls.Add(lblMsg);
+                pnlVpnList.ResumeLayout();
+                return;
+            }
+
+            int rowY = 0;
+            int rowW = pnlVpnList.ClientSize.Width;
+
+            foreach (var app in apps)
+            {
+                var row = new Panel
+                {
+                    Location = new Point(0, rowY),
+                    Size = new Size(rowW, 44),
+                    BackColor = app.IsActive ? Color.FromArgb(28, 38, 60) : Color.Transparent,
+                };
+
+                int textX = 8;
+                if (app.IsActive)
+                {
+                    var dot = new Dot
+                    {
+                        Location = new Point(8, 16),
+                        Size = new Size(10, 10),
+                        DotColor = Theme.On
+                    };
+                    row.Controls.Add(dot);
+                    textX = 24;
+                }
+
+                var lblName = MakeLabel(app.DisplayName, Theme.UI(9.5f, FontStyle.Bold), app.IsActive ? Theme.On : Theme.Text, textX, 4, rowW - textX - 70);
+                row.Controls.Add(lblName);
+
+                string subText = app.IsActive ? $"{app.Package}  •  Active VPN" : app.Package;
+                var lblPkg = MakeLabel(subText, Theme.UI(8f), app.IsActive ? Theme.Secondary : Theme.Muted, textX, 23, rowW - textX - 70);
+                row.Controls.Add(lblPkg);
+
+                var btnOpen = new Button
+                {
+                    Text = "Open",
+                    Location = new Point(rowW - 64, 8),
+                    Size = new Size(58, 28),
+                    FlatStyle = FlatStyle.Flat,
+                    BackColor = app.IsActive ? Theme.Start : Theme.Stroke,
+                    ForeColor = Color.White,
+                    Font = Theme.UI(8.5f, FontStyle.Bold),
+                    Cursor = Cursors.Hand,
+                };
+                btnOpen.FlatAppearance.BorderSize = 0;
+                string pkg = app.Package;
+                string label = app.DisplayName;
+                btnOpen.Click += (s, e) =>
+                {
+                    try
+                    {
+                        Scrcpy.Start(SelectedSerial, pkg, label);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show("Could not start scrcpy: " + ex.Message, "PdaNext", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                };
+                row.Controls.Add(btnOpen);
+
+                pnlVpnList.Controls.Add(row);
+                rowY += 46;
+            }
+
+            pnlVpnList.ResumeLayout();
         }
 
         /// <summary>Real ICMP pings through the adapter: to the phone itself, and to the internet via the phone.</summary>
@@ -439,7 +614,7 @@ namespace PdaNext
         {
             txtLog.Visible = !txtLog.Visible;
             lnkLog.Text = txtLog.Visible ? "Hide log" : "Show log";
-            ClientSize = new Size(ClientSize.Width, txtLog.Visible ? 720 + 160 : 720);
+            ClientSize = new Size(ClientSize.Width, txtLog.Visible ? 890 + 160 : 890);
         }
 
         void AppendLog(string line)
@@ -482,6 +657,7 @@ namespace PdaNext
         {
             tray.Visible = false;
             tray.Dispose();
+            Scrcpy.Stop();
             base.OnFormClosed(e);
         }
 

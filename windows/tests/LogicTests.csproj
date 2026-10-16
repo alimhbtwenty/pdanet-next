@@ -12,5 +12,7 @@
     <Compile Include="..\src\Adb.cs" />
     <Compile Include="..\src\PhoneStatus.cs" />
     <Compile Include="..\src\RouterLinkProtocol.cs" />
+    <Compile Include="..\src\VpnDiscovery.cs" />
+    <Compile Include="..\src\Scrcpy.cs" />
   </ItemGroup>
 </Project>

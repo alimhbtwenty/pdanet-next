@@ -12,6 +12,9 @@ permissions:
 env:
   WINTUN: "wintun-0.14.1.zip"
   PLATFORM_TOOLS: "platform-tools-latest-windows.zip"
+  SCRCPY_VERSION: "5.0.1"
+  SCRCPY_ZIP: "scrcpy-win64-v5.0.1.zip"
+  SCRCPY_SHA256: "b12a2c4ee8be317422451fc7dcf8ee20a71b5ea7ef9ad73ddd825a25316227a5"
 
 jobs:
   relay-tests:
@@ -81,23 +84,32 @@ jobs:
           $code = $LASTEXITCODE
           Get-Process java -ErrorAction SilentlyContinue | Stop-Process -Force
           if ($code -ne 0) { exit 1 }
-      - name: Fetch adb and wintun
+      - name: Fetch adb, wintun and scrcpy
         run: |
           Invoke-WebRequest "https://dl.google.com/android/repository/$env:PLATFORM_TOOLS" -OutFile pt.zip
           Expand-Archive pt.zip -DestinationPath pt
           Invoke-WebRequest "https://www.wintun.net/builds/$env:WINTUN" -OutFile wintun.zip
           Expand-Archive wintun.zip -DestinationPath wt
+          Invoke-WebRequest "https://github.com/Genymobile/scrcpy/releases/download/v$env:SCRCPY_VERSION/$env:SCRCPY_ZIP" -OutFile scrcpy.zip
+          $hash = (Get-FileHash scrcpy.zip -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:SCRCPY_SHA256.ToLower()) {
+            throw "scrcpy SHA256 mismatch: expected $env:SCRCPY_SHA256 but got $hash"
+          }
+          Expand-Archive scrcpy.zip -DestinationPath scrcpy-raw
       - uses: actions/download-artifact@v4
         with: { name: android-apk, path: apk }
       - name: Package
         run: |
           $out = "release/PdaNext"
           New-Item -ItemType Directory -Force "$out/bin" | Out-Null
+          New-Item -ItemType Directory -Force "$out/bin/scrcpy" | Out-Null
           Copy-Item windows/out/bin/PdaNext/Release/PdaNext.exe, windows/out/bin/PdaNext/Release/PdaNext.exe.config $out
           Copy-Item pt/platform-tools/adb.exe, pt/platform-tools/AdbWinApi.dll, pt/platform-tools/AdbWinUsbApi.dll "$out/bin"
           Copy-Item wt/wintun/bin/amd64/wintun.dll "$out/bin"
           Copy-Item wt/wintun/LICENSE.txt "$out/bin/wintun-LICENSE.txt"
           Copy-Item apk/PdaNext.apk "$out/bin"
+          Copy-Item scrcpy-raw/scrcpy-win64-v$env:SCRCPY_VERSION/* "$out/bin/scrcpy"
+          Copy-Item "$out/bin/scrcpy/LICENSE.txt" "$out/bin/scrcpy-LICENSE.txt"
           Copy-Item README.md $out
           Compress-Archive -Path $out -DestinationPath PdaNext-Windows.zip
       - name: Build MSI installer
@@ -117,6 +129,8 @@ jobs:
           if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 60; exit 1 }
           if (-not (Test-Path "$env:ProgramFiles\PdaNext\PdaNext.exe")) { throw "PdaNext.exe not installed" }
           if (-not (Test-Path "$env:ProgramFiles\PdaNext\bin\wintun.dll")) { throw "wintun.dll not installed" }
+          if (-not (Test-Path "$env:ProgramFiles\PdaNext\bin\scrcpy\scrcpy.exe")) { throw "scrcpy.exe not installed" }
+          if (-not (Test-Path "$env:ProgramFiles\PdaNext\bin\scrcpy-LICENSE.txt")) { throw "scrcpy-LICENSE.txt not installed" }
           $p = Start-Process msiexec -Wait -PassThru -ArgumentList "/x","PdaNext-Setup.msi","/qn","/l*v","uninstall.log"
           if ($p.ExitCode -ne 0) { Get-Content uninstall.log -Tail 60; exit 1 }
           if (Test-Path "$env:ProgramFiles\PdaNext\PdaNext.exe") { throw "PdaNext.exe left behind" }
