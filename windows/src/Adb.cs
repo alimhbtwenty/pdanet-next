@@ -79,6 +79,51 @@ namespace PdaNext
             }
             return list;
         }
+
+        /// <summary>
+        /// Discovers all VPN apps on the connected device and marks the currently active VPN.
+        /// Queries cmd package query-services with fallbacks to pm query-services and dumpsys package.
+        /// Resolves the active VPN owner from dumpsys connectivity.
+        /// </summary>
+        public static List<VpnApp> ListVpnApps(string serial = null)
+        {
+            // 1. Try cmd package query-services (modern Android 8+)
+            var r = string.IsNullOrEmpty(serial)
+                ? Run("shell cmd package query-services -a android.net.VpnService", 8000)
+                : Run(serial, "shell cmd package query-services -a android.net.VpnService", 8000);
+
+            var apps = VpnDiscovery.ParseQueryServices(r.Ok ? r.Output : "");
+
+            // 2. Fall back to pm query-services if empty or failed
+            if (apps.Count == 0)
+            {
+                var r2 = string.IsNullOrEmpty(serial)
+                    ? Run("shell pm query-services -a android.net.VpnService", 8000)
+                    : Run(serial, "shell pm query-services -a android.net.VpnService", 8000);
+                apps = VpnDiscovery.ParseQueryServices(r2.Ok ? r2.Output : "");
+            }
+
+            // 3. Fall back to dumpsys package if still empty
+            if (apps.Count == 0)
+            {
+                var r3 = string.IsNullOrEmpty(serial)
+                    ? Run("shell dumpsys package", 10000)
+                    : Run(serial, "shell dumpsys package", 10000);
+                apps = VpnDiscovery.ParseDumpsysPackageServices(r3.Ok ? r3.Output : "");
+            }
+
+            // 4. Query dumpsys connectivity for active VPN network owner
+            var rConn = string.IsNullOrEmpty(serial)
+                ? Run("shell dumpsys connectivity", 8000)
+                : Run(serial, "shell dumpsys connectivity", 8000);
+
+            string activePkg = rConn.Ok ? VpnDiscovery.ParseActiveVpnPackage(rConn.Output) : null;
+
+            return VpnDiscovery.MergeAndMarkActive(apps, activePkg);
+        }
+
+        public static System.Threading.Tasks.Task<List<VpnApp>> ListVpnAppsAsync(string serial = null) =>
+            System.Threading.Tasks.Task.Run(() => ListVpnApps(serial));
     }
 
     public static class ProcessRunner

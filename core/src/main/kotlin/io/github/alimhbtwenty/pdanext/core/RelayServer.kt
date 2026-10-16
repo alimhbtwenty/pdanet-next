@@ -39,6 +39,8 @@ class RelayServer(
     private val routerConfig: RouterConfig = RouterConfig(),
     private val routerPlatform: RouterPlatform = JvmRouterPlatform(),
     private val tunnelUpstream: Upstream? = null,
+    /** Current tunnel for new flows (e.g. the selected Xray config); null = everything DIRECT. */
+    private val tunnelProvider: () -> Upstream? = { tunnelUpstream },
     private val bypassPolicy: BypassPolicy = BypassPolicy(),
     val logBuffer: LogRingBuffer = LogRingBuffer(),
     val requireProtection: Boolean = routerConfig.requireProtection,
@@ -129,7 +131,7 @@ class RelayServer(
             }
             input.reset()
             when (String(head, Charsets.US_ASCII)) {
-                RouterLink.MAGIC -> RouterLink(this, client, input, routerConfig, routerPlatform, tunnelUpstream, bypassPolicy).run()
+                RouterLink.MAGIC -> RouterLink(this, client, input, routerConfig, routerPlatform, tunnelProvider, bypassPolicy).run()
                 "GET " -> serveHttp(client, input, client.getOutputStream())
             }
         } catch (e: Exception) {

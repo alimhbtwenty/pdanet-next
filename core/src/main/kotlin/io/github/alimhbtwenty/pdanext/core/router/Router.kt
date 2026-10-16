@@ -64,7 +64,7 @@ class Router(
     val config: RouterConfig,
     private val sendToPc: (ByteArray) -> Unit,
     val direct: Upstream,
-    val tunnel: Upstream? = null,
+    tunnel: Upstream? = null,
     val policy: BypassPolicy = BypassPolicy(),
     val stats: RelayStats,
     private val platform: RouterPlatform? = (direct as? DirectUpstream)?.platform,
@@ -72,7 +72,18 @@ class Router(
     private val clock: () -> Long = System::currentTimeMillis,
     private val logger: ((LogLevel, LogSource, String) -> Unit)? = null,
     var isProtectedProvider: (() -> Boolean)? = null,
+    /**
+     * The tunnel for new flows, asked per flow (so switching Xray configs needs no reconnect).
+     * Null = no config selected = everything DIRECT. A selected but disconnected tunnel must still be
+     * returned (its connects fail): tunnelled flows never fall back to direct.
+     */
+    tunnelProvider: (() -> Upstream?)? = null,
 ) {
+    private val tunnelSource: () -> Upstream? = tunnelProvider ?: { tunnel }
+
+    /** The current tunnel upstream, or null when everything goes DIRECT. */
+    val tunnel: Upstream? get() = tunnelSource()
+
     constructor(
         config: RouterConfig,
         sendToPc: (ByteArray) -> Unit,
@@ -150,7 +161,8 @@ class Router(
 
     internal fun selectUpstream(dst: InetAddress): Upstream {
         val route = policy.route(dst, clock())
-        return if (route == Route.DIRECT || tunnel == null) direct else tunnel
+        val tun = tunnel
+        return if (route == Route.DIRECT || tun == null) direct else tun
     }
 
     internal fun log(level: LogLevel, source: LogSource, message: String) {

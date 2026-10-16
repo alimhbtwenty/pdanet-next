@@ -37,7 +37,9 @@
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="PdaNext">
-        <Directory Id="BinFolder" Name="bin" />
+        <Directory Id="BinFolder" Name="bin">
+          <Directory Id="ScrcpyFolder" Name="scrcpy" />
+        </Directory>
       </Directory>
     </StandardDirectory>
 
@@ -68,20 +70,26 @@
       <Component><File Source="$(SourceDir)\bin\AdbWinUsbApi.dll" /></Component>
       <Component><File Source="$(SourceDir)\bin\wintun.dll" /></Component>
       <Component><File Source="$(SourceDir)\bin\wintun-LICENSE.txt" /></Component>
+      <Component><File Source="$(SourceDir)\bin\scrcpy-LICENSE.txt" /></Component>
       <Component><File Source="$(SourceDir)\bin\PdaNext.apk" /></Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="ScrcpyFiles" Directory="ScrcpyFolder">
+      <Files Include="$(SourceDir)\bin\scrcpy\*" />
     </ComponentGroup>
 
     <Feature Id="Main" Title="PdaNext">
       <ComponentGroupRef Id="AppFiles" />
       <ComponentGroupRef Id="BinFiles" />
+      <ComponentGroupRef Id="ScrcpyFiles" />
     </Feature>
 
     <!--
-      On uninstall: stop the app and adb, and remove what lives outside the install folder
+      On uninstall: stop the app, adb and scrcpy, and remove what lives outside the install folder
       (the logon task and the DNS rule). Failures are ignored: each may simply not exist.
     -->
     <SetProperty Id="StopApp" Before="StopApp" Sequence="execute"
-                 Value="&quot;[System64Folder]taskkill.exe&quot; /F /IM PdaNext.exe /IM adb.exe" />
+                 Value="&quot;[System64Folder]taskkill.exe&quot; /F /IM PdaNext.exe /IM adb.exe /IM scrcpy.exe" />
     <CustomAction Id="StopApp" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec"
                   Execute="deferred" Impersonate="no" Return="ignore" />
 

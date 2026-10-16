@@ -28,7 +28,7 @@ class RouterLink(
     input: InputStream,
     private val config: RouterConfig,
     private val platform: RouterPlatform,
-    private val tunnel: Upstream? = null,
+    private val tunnelProvider: () -> Upstream? = { null },
     private val policy: BypassPolicy = BypassPolicy(),
 ) {
     private val input = DataInputStream(input)
@@ -63,7 +63,7 @@ class RouterLink(
             config = config,
             sendToPc = ::enqueue,
             direct = DirectUpstream(platform),
-            tunnel = tunnel,
+            tunnelProvider = tunnelProvider,
             policy = policy,
             stats = relay.stats,
             platform = platform,
